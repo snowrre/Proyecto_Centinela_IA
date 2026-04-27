@@ -152,6 +152,7 @@ function MonitorView({ darkMode }) {
   const handleDeleteExam = async (pin) => {
     if (!confirm(`¿Estás seguro de que deseas eliminar la sala ${pin}?`)) return;
     
+    try {
       // 1. Eliminar de Supabase (intentar siempre)
       try {
         await supabase.from('exams').delete().eq('pin_sala', pin);
