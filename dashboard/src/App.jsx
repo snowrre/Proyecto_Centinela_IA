@@ -27,6 +27,12 @@ export default function App() {
     localStorage.setItem('centinela_dark', darkMode);
   }, [view, teacherTab, darkMode]);
 
+  const handleLogout = () => {
+    setView('landing');
+    localStorage.removeItem('centinela_view');
+    localStorage.removeItem('centinela_tab');
+  };
+
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark');
@@ -45,7 +51,7 @@ export default function App() {
   }
 
   if (view === 'student_dashboard') {
-    return <StudentPortal onLogout={() => setView('landing')} />;
+    return <StudentPortal onExit={handleLogout} darkMode={darkMode} />;
   }
 
   return (
@@ -67,7 +73,7 @@ export default function App() {
         </nav>
 
         <div className="p-6 border-t dark:border-white/10">
-          <button onClick={() => setView('landing')} className="w-full flex items-center gap-4 px-6 py-4 text-neutral-400 hover:text-red-500 transition-colors font-black text-xs uppercase tracking-widest">
+          <button onClick={handleLogout} className="w-full flex items-center gap-4 px-6 py-4 text-neutral-400 hover:text-red-500 transition-colors font-black text-xs uppercase tracking-widest">
             <LogOut className="w-4 h-4" /> Cerrar Sesión
           </button>
         </div>
