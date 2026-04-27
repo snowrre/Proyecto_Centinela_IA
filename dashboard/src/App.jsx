@@ -99,6 +99,7 @@ function MonitorView({ darkMode }) {
   const [activeExams, setActiveExams] = useState([]);
   const [studentStatus, setStudentStatus] = useState({});
   const [filterPin, setFilterPin] = useState(null);
+  const [deletingPin, setDeletingPin] = useState(null);
 
   const fetchData = async () => {
     try {
@@ -150,46 +151,28 @@ function MonitorView({ darkMode }) {
   };
 
   const handleDeleteExam = async (pin) => {
-    const confirmMsg = pin ? `¿Seguro que quieres eliminar la sala ${pin}?` : "¿Seguro que quieres eliminar esta sala corrupta?";
-    if (!window.confirm(confirmMsg)) return;
-    
     try {
-      console.log("Intentando eliminar sala:", pin);
-      
-      // 1. Eliminar de Supabase (si hay PIN)
-      if (pin) {
-        try {
-          await supabase.from('exams').delete().eq('pin_sala', pin);
-        } catch (e) {
-          console.warn("Supabase delete failed:", e);
-        }
+      // 1. Intentar borrar de Supabase
+      if (pin && pin !== "") {
+        await supabase.from('exams').delete().eq('pin_sala', pin);
       }
 
-      // 2. Eliminar de localStorage (usando PIN o filtrando corruptos)
-      const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
-      const filtered = localExams.filter(e => {
-        if (!pin) return e.pin_sala; // Si no hay pin buscado, mantenemos los que si tienen
-        return String(e.pin_sala) !== String(pin);
-      });
-      
-      // Si el pin era nulo/vacio, eliminamos el primer elemento sin pin para limpiar basura
-      if (!pin) {
-        const firstCorruptIndex = localExams.findIndex(e => !e.pin_sala);
-        if (firstCorruptIndex > -1) localExams.splice(firstCorruptIndex, 1);
-        localStorage.setItem('active_exams', JSON.stringify(localExams));
-        setActiveExams([...localExams]);
-      } else {
-        localStorage.setItem('active_exams', JSON.stringify(filtered));
-        setActiveExams(filtered);
-      }
+      // 2. Limpiar LocalStorage (siempre)
+      const local = JSON.parse(localStorage.getItem('active_exams') || '[]');
+      const filtered = local.filter(e => String(e.pin_sala) !== String(pin));
+      localStorage.setItem('active_exams', JSON.stringify(filtered));
 
+      // 3. Actualizar UI
+      setActiveExams(prev => prev.filter(e => String(e.pin_sala) !== String(pin)));
+      setDeletingPin(null);
       if (filterPin === pin) setFilterPin(null);
       
       fetchData();
-      alert("Sala eliminada correctamente.");
     } catch (err) {
-      console.error("Error deleting exam:", err);
-      alert("No se pudo eliminar la sala. Reintenta.");
+      console.error("Error en eliminación:", err);
+      // Fallback: al menos quitar de la vista local
+      setActiveExams(prev => prev.filter(e => String(e.pin_sala) !== String(pin)));
+      setDeletingPin(null);
     }
   };
 
@@ -375,18 +358,36 @@ function MonitorView({ darkMode }) {
                 {activeExams.map(exam => (
                     <div key={exam.id} className={cn("p-10 rounded-[40px] border group transition-all hover:shadow-2xl", darkMode ? "bg-[#111111] border-white/10 hover:border-blue-500/50" : "bg-white border-neutral-200")}>
                         <div className="flex items-center justify-between mb-10">
-                            <div className="px-6 py-2 bg-blue-600 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-lg shadow-blue-600/20">{exam.pin_sala}</div>
-                            <button 
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleDeleteExam(exam.pin_sala);
-                                }}
-                                className="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 transition-all hover:scale-110 active:scale-95 cursor-pointer z-30"
-                                title="Eliminar Sala"
-                            >
-                                <Trash2 className="w-5 h-5 pointer-events-none" />
-                            </button>
+                            <div className="px-6 py-2 bg-blue-600 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-lg shadow-blue-600/20">{exam.pin_sala || "SIN PIN"}</div>
+                            <div className="flex gap-2">
+                                {deletingPin === (exam.pin_sala || exam.id) ? (
+                                    <div className="flex items-center gap-2 animate-in fade-in zoom-in duration-300">
+                                        <button 
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteExam(exam.pin_sala); }}
+                                            className="px-4 py-2 bg-red-600 text-white text-[10px] font-black rounded-xl uppercase"
+                                        >
+                                            Confirmar
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); setDeletingPin(null); }}
+                                            className="px-4 py-2 bg-neutral-200 dark:bg-white/10 text-neutral-500 text-[10px] font-black rounded-xl uppercase"
+                                        >
+                                            No
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button 
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setDeletingPin(exam.pin_sala || exam.id); }}
+                                        className="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                                        title="Eliminar Sala"
+                                    >
+                                        <Trash2 className="w-5 h-5 pointer-events-none" />
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         <h4 className="text-xl font-black mb-2 uppercase tracking-tight">{exam.titulo}</h4>
                         <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest mb-10">Creado: {new Date(exam.created_at).toLocaleDateString()}</p>
