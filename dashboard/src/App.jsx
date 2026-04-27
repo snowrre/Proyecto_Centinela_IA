@@ -16,7 +16,7 @@ function cn(...inputs) {
 }
 
 export default function App() {
-  const [view, setView] = useState(() => localStorage.getItem('centinela_view') || 'landing');
+  const [view, setView] = useState('landing');
   const [teacherTab, setTeacherTab] = useState(() => localStorage.getItem('centinela_tab') || 'monitor');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('centinela_dark') === 'true');
 
