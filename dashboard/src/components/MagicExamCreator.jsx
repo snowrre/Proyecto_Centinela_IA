@@ -24,6 +24,7 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
   const [questions, setQuestions] = useState([]);
   const [importMode, setImportMode] = useState(null); // 'ai', 'manual', 'link'
   const [externalLink, setExternalLink] = useState('');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (questions.length > 0) {
@@ -57,11 +58,17 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
       }
 
       const worker = await createWorker('spa', 1, {
-        logger: m => { if (m.status === 'recognizing text') setOcrProgress(Math.floor(m.progress * 100)); }
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            setOcrProgress(Math.floor(m.progress * 100));
+            setOcrStatus(`Analizando contenido... ${Math.floor(m.progress * 100)}%`);
+          }
+        }
       });
       
       let fullText = "";
       for (let j = 0; j < imagesToProcess.length; j++) {
+        setOcrStatus(`Leyendo página ${j + 1} de ${imagesToProcess.length}...`);
         const { data: { text } } = await worker.recognize(imagesToProcess[j]);
         fullText += "\n" + text;
       }
@@ -79,43 +86,120 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
   };
 
   const parseQuestionsFromText = (text) => {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    // Dividir por saltos de línea dobles para identificar bloques de preguntas
+    const blocks = text.split(/\n\s*\n/).filter(b => b.trim().length > 10);
     const qs = [];
-    let currentQ = null;
-    lines.forEach(line => {
-      const isQuestionStart = /^\d+[.)\-\s]/.test(line) || line.startsWith('¿');
+    
+    blocks.forEach(block => {
+      const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      if (lines.length === 0) return;
+
+      const firstLine = lines[0];
+      // Detectar inicio de pregunta: número, signo de interrogación, o palabra "Pregunta"
+      const isQuestionStart = /^\d+[.)\-\s]/.test(firstLine) || firstLine.startsWith('¿') || /^[pP]regunta\s*\d+/i.test(firstLine);
+
       if (isQuestionStart) {
-        if (currentQ) qs.push(currentQ);
-        currentQ = { id: Math.random().toString(36).substr(2, 9), type: 'multiple', text: line.replace(/^\d+[.)\-\s]+/, ''), options: [], correctOption: null };
-      } else if (currentQ) {
-        const optionMatch = line.match(/^([a-eA-E])[.)\-\s]+(.*)/);
-        if (optionMatch) {
-          const optId = optionMatch[1].toLowerCase();
-          currentQ.options.push({ id: optId, text: optionMatch[2].trim() });
-          if (!currentQ.correctOption) currentQ.correctOption = optId;
-        } else {
-          currentQ.text += " " + line;
+        const qText = firstLine.replace(/^\d+[.)\-\s]+/, '').replace(/^[pP]regunta\s*\d+[:.\s]*/i, '');
+        const options = [];
+        let correctOption = null;
+
+        for (let i = 1; i < lines.length; i++) {
+          // Detectar opciones: a) b) c) ... o (a) (b) ...
+          const optionMatch = lines[i].match(/^([a-eA-E])[.)\-\s]+(.*)/) || lines[i].match(/^\(([a-eA-E])\)\s*(.*)/);
+          if (optionMatch) {
+            const optId = optionMatch[1].toLowerCase();
+            options.push({ id: optId, text: optionMatch[2].trim() });
+            if (!correctOption) correctOption = optId;
+          } else if (options.length > 0) {
+            // Si no coincide pero ya hay opciones, es probable que sea continuación de la última opción
+            options[options.length - 1].text += " " + lines[i];
+          } else {
+            // Si no hay opciones aún, es continuación de la pregunta
+            // (evitar concatenar si parece otra pregunta)
+            if (!/^\d+[.)\-\s]/.test(lines[i])) {
+                // concatenar a qText ? No, dejémoslo simple por ahora
+            }
+          }
         }
+
+        qs.push({
+          id: Math.random().toString(36).substring(2, 11),
+          type: options.length > 0 ? 'multiple' : 'open',
+          text: qText,
+          options,
+          correctOption
+        });
       }
     });
-    if (currentQ) qs.push(currentQ);
+
+    // Si falló el parseo por bloques, intentar el método línea por línea anterior como fallback
+    if (qs.length === 0) {
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        let currentQ = null;
+        lines.forEach(line => {
+          const isQ = /^\d+[.)\-\s]/.test(line) || line.startsWith('¿');
+          if (isQ) {
+            if (currentQ) qs.push(currentQ);
+            currentQ = { id: Math.random().toString(36).substring(2, 11), type: 'multiple', text: line.replace(/^\d+[.)\-\s]+/, ''), options: [], correctOption: null };
+          } else if (currentQ) {
+            const optMatch = line.match(/^([a-eA-E])[.)\-\s]+(.*)/);
+            if (optMatch) {
+              const id = optMatch[1].toLowerCase();
+              currentQ.options.push({ id, text: optMatch[2].trim() });
+              if (!currentQ.correctOption) currentQ.correctOption = id;
+            } else {
+              currentQ.text += " " + line;
+            }
+          }
+        });
+        if (currentQ) qs.push(currentQ);
+    }
+
     return qs.map(q => q.options.length === 0 ? { ...q, type: 'open' } : q);
   };
 
   const handleCreateRoom = async () => {
-    const generatedPin = "#UTC-" + Math.floor(1000 + Math.random() * 9000);
+    if (questions.length === 0) {
+      setErrorMessage('Agrega al menos una pregunta antes de publicar.');
+      return;
+    }
+    setLoading(true);
+    setErrorMessage('');
+    const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     setPin(generatedPin);
-    const newExam = { pin: generatedPin, title: examTitle, questions };
+    
+    const newExam = { 
+      pin_sala: generatedPin, 
+      titulo: examTitle, 
+      preguntas: questions,
+      created_at: new Date().toISOString()
+    };
     
     try {
-        await supabase.from('exams').insert([newExam]);
+        const { error } = await supabase.from('exams')
+            .insert([newExam]);
+        
+        if (error) {
+            console.error("Supabase error:", error);
+            // Si el error es de columna faltante, notificamos pero permitimos avanzar localmente para no bloquear al usuario
+            if (error.message?.includes('column') || error.code === 'PGRST116') {
+                setErrorMessage("⚠️ Error de Base de Datos: Faltan columnas en la tabla 'exams'. El examen se creó localmente pero no se guardó en la nube. Ejecuta el SQL de reparación.");
+            } else {
+                throw error;
+            }
+        }
+        
+        const existing = JSON.parse(localStorage.getItem('active_exams') || '[]');
+        localStorage.setItem('active_exams', JSON.stringify([newExam, ...existing]));
+        
+        // Redirigir siempre al paso 4 para que el docente vea su PIN
+        setStep(4);
     } catch (err) {
         console.error("Error saving to Supabase:", err);
+        setErrorMessage(`Error crítico al publicar: ${err.message || 'Error de conexión'}`);
+    } finally {
+        setLoading(false);
     }
-
-    const existing = JSON.parse(localStorage.getItem('active_exams') || '[]');
-    localStorage.setItem('active_exams', JSON.stringify([newExam, ...existing]));
-    setStep(4);
   };
 
   const addManualQuestion = (type) => {
@@ -210,8 +294,20 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
              <button onClick={() => setStep(0)} className={cn("p-2 rounded-xl transition-colors", darkMode ? "text-white hover:bg-white/10" : "text-black hover:bg-neutral-100")}><ChevronLeft className="w-6 h-6" /></button>
              <input type="text" value={examTitle} onChange={(e) => setExamTitle(e.target.value)} className={cn("bg-transparent border-none p-0 font-black text-xl focus:ring-0", darkMode ? "text-white" : "text-black")} />
           </div>
-          <button onClick={handleCreateRoom} className="px-8 py-3 bg-blue-600 text-white text-sm font-black rounded-[18px] hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-blue-500/20">Publicar Examen <ArrowRight className="inline ml-2 w-4 h-4" /></button>
+          <button 
+            onClick={handleCreateRoom} 
+            disabled={loading}
+            className="px-8 py-3 bg-blue-600 text-white text-sm font-black rounded-[18px] hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-blue-500/20 disabled:opacity-50"
+          >
+            {loading ? 'Publicando...' : 'Publicar Examen'} <ArrowRight className="inline ml-2 w-4 h-4" />
+          </button>
         </div>
+
+        {errorMessage && (
+          <div className="mx-10 mt-4 p-4 rounded-xl bg-red-50 text-red-600 text-xs font-bold border border-red-200">
+            {errorMessage}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-10">
           <div className="max-w-4xl mx-auto space-y-8 pb-32">

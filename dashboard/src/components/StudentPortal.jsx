@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, ShieldAlert, CheckCircle2, AlertTriangle, LogOut, FileText, Loader2, Play, Lock, Sparkles } from 'lucide-react';
+import { Camera, Mic, ShieldAlert, CheckCircle2, AlertTriangle, LogOut, Loader2, Play, Lock, User, Mail, Hash, Video } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { CentinelaEngine } from '../lib/monitoring_engine';
@@ -11,8 +11,13 @@ function cn(...inputs) {
 }
 
 export default function StudentPortal({ onExit, darkMode }) {
-  const [step, setStep] = useState('pin'); 
-  const [pin, setPin] = useState('');
+  const [step, setStep] = useState('login'); // login, check, active
+  const [formData, setFormData] = useState({
+    matricula: '',
+    nombre: '',
+    correo: '',
+    pin: ''
+  });
   const [examData, setExamData] = useState(null);
   const [cameraGranted, setCameraGranted] = useState(false);
   const [micGranted, setMicGranted] = useState(false);
@@ -23,29 +28,36 @@ export default function StudentPortal({ onExit, darkMode }) {
   const streamRef = useRef(null);
   const engineRef = useRef(null);
 
-  const handleVerifyPin = async () => {
-    if (!pin) return;
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!formData.pin || !formData.matricula) return;
     setLoading(true);
     
-    // PIN Maestro para pruebas rápidas o búsqueda en DB
-    if (pin === '5700' || pin === 'ALUMNO123') {
-        setExamData({ title: "Examen de Prueba - Centinela IA", questions: [{text: "Responde honestamente."}] });
+    try {
+      // Verificar PIN en Supabase
+      const { data, error } = await supabase
+        .from('exams')
+        .select('id, pin_sala, titulo, preguntas, created_at')
+        .eq('pin_sala', formData.pin.toUpperCase())
+        .single();
+
+      if (data) {
+        setExamData(data);
         setStep('check');
         initCamera();
-    } else {
-        try {
-            const { data } = await supabase.from('exams').select('*').eq('pin', pin.toUpperCase()).single();
-            if (data) {
-                setExamData(data);
-                setStep('check');
-                initCamera();
-            } else {
-                alert("PIN Inválido. Usa 5700 para probar.");
-            }
-        } catch (err) {
-            console.error("Error verifying PIN:", err);
-            alert("Error de conexión. Intenta con 5700.");
-        }
+      } else {
+        alert("PIN Inválido. Por favor verifica con tu docente.");
+      }
+    } catch (err) {
+      console.error("Error verifying PIN:", err);
+      // Fallback para pruebas con PIN 5700
+      if (formData.pin === '5700') {
+        setExamData({ titulo: "Examen de Prueba (Local)", pin_sala: '5700' });
+        setStep('check');
+        initCamera();
+      } else {
+        alert("Error de conexión con el servidor.");
+      }
     }
     setLoading(false);
   };
@@ -65,7 +77,7 @@ export default function StudentPortal({ onExit, darkMode }) {
       }
     } catch (err) {
       console.error("Error media devices.", err);
-      alert("No se pudo acceder a la cámara. Verifica los permisos de tu navegador.");
+      alert("Se requiere acceso a la cámara y micrófono para realizar el examen.");
     }
   };
 
@@ -76,14 +88,21 @@ export default function StudentPortal({ onExit, darkMode }) {
       onAlert: async (alertData) => {
         setAlerts(prev => [alertData, ...prev].slice(0, 5));
         
+        // Log a Supabase con todos los datos del alumno
         await supabase.from('camera_logs').insert([{
-          event_type: "alerta_comportamiento",
-          description: `[${alertData.type}] ${alertData.message}`,
-          nombre_completo: "Estudiante Prueba",
-          matricula: pin, 
-          risk_score: 85,
-          timestamp: new Date().toISOString()
+          event_type: alertData.type,
+          description: alertData.message,
+          nombre_completo: formData.nombre,
+          matricula: formData.matricula,
+          correo: formData.correo,
+          pin_sala: formData.pin.toUpperCase(),
+          created_at: new Date().toISOString()
         }]);
+
+        // Intentar subir captura si es una alerta crítica
+        if (alertData.type === 'OBJETO_PROHIBIDO') {
+           captureAndUpload();
+        }
       }
     });
 
@@ -95,6 +114,36 @@ export default function StudentPortal({ onExit, darkMode }) {
     }, 800);
   };
 
+  useEffect(() => {
+    let captureInterval;
+    if (step === 'active') {
+        captureInterval = setInterval(captureAndUpload, 30000);
+    }
+    return () => {
+        if (captureInterval) clearInterval(captureInterval);
+    };
+  }, [step]);
+
+  const captureAndUpload = async () => {
+    if (!videoRef.current) return;
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+        
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.7));
+        if (blob) {
+            const fileName = `${formData.matricula}.jpg`;
+            await supabase.storage.from('snapshots').upload(fileName, blob, {
+                upsert: true
+            });
+        }
+    } catch (e) {
+        console.warn("Error uploading snapshot:", e);
+    }
+  };
+
   const exitPortal = () => {
     streamRef.current?.getTracks().forEach(t => t.stop());
     if (engineRef.current) engineRef.current.stop();
@@ -102,10 +151,43 @@ export default function StudentPortal({ onExit, darkMode }) {
   };
 
   useEffect(() => {
-    if (step === 'check' && videoRef.current && streamRef.current) {
+    if ((step === 'check' || step === 'active') && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
     }
   }, [step, cameraGranted]);
+
+  useEffect(() => {
+    if (step === 'active' && formData.matricula) {
+      const channel = supabase
+        .channel(`student-commands-${formData.matricula}`)
+        .on(
+          'postgres_changes',
+          { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'commands', 
+            filter: `matricula=eq.${formData.matricula}` 
+          },
+          (payload) => {
+            const cmd = payload.new;
+            if (cmd.command === 'ALERTA') {
+              const msg = cmd.payload?.message || "Llamada de atención del docente.";
+              setAlerts(prev => [{ type: 'SISTEMA', message: msg }, ...prev].slice(0, 5));
+              // Mostrar una notificación visual persistente o un alert simple
+              alert(`⚠️ MENSAJE DEL DOCENTE: ${msg}`);
+            } else if (cmd.command === 'EXPULSAR') {
+              alert("🚨 Has sido expulsado del examen por el docente.");
+              exitPortal();
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [step, formData.matricula]);
 
   return (
     <div className={cn("min-h-screen font-sans transition-colors duration-300", darkMode ? "bg-surf-dark text-neutral-100" : "bg-[#f8f9fa] text-neutral-900")}>
@@ -115,8 +197,8 @@ export default function StudentPortal({ onExit, darkMode }) {
             <ShieldAlert className="w-6 h-6 text-white" />
           </div>
           <div>
-            <span className="font-black text-sm uppercase tracking-tighter block">Centinela IA</span>
-            <span className="text-[10px] text-blue-500 font-bold uppercase tracking-widest">Portal del Alumno</span>
+            <span className="font-black text-sm uppercase tracking-tighter block text-white">Centinela IA</span>
+            <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">Portal Estudiantil</span>
           </div>
         </div>
         
@@ -127,31 +209,74 @@ export default function StudentPortal({ onExit, darkMode }) {
 
       <main className="max-w-6xl mx-auto px-6 py-12">
         <AnimatePresence mode="wait">
-          {step === 'pin' && (
-            <motion.div key="pin" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col items-center justify-center min-h-[60vh]">
-                <div className={cn("w-full max-w-md p-10 rounded-[40px] border shadow-2xl", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
-                    <div className="w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-2xl flex items-center justify-center mb-8 mx-auto">
-                        <Lock className="w-8 h-8 text-blue-600" />
+          {step === 'login' && (
+            <motion.div key="login" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col items-center justify-center min-h-[70vh]">
+                <form onSubmit={handleLogin} className={cn("w-full max-w-lg p-10 rounded-[40px] border shadow-2xl", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
+                    <div className="text-center mb-10">
+                        <div className="w-16 h-16 bg-blue-600/10 rounded-3xl flex items-center justify-center mb-4 mx-auto">
+                            <Lock className="w-8 h-8 text-blue-600" />
+                        </div>
+                        <h2 className="text-2xl font-black uppercase tracking-tight">Acceso Estudiante</h2>
+                        <p className="text-xs text-neutral-500 font-medium">Completa tus datos para iniciar el monitoreo.</p>
                     </div>
-                    <h2 className="text-2xl font-black mb-2 text-center uppercase tracking-tight">Acceso a Examen</h2>
-                    <p className="text-sm text-neutral-500 mb-8 text-center">Ingresa el código PIN o 5700 para probar.</p>
-                    <input 
-                        type="text" 
-                        placeholder="#UTC-0000" 
-                        value={pin}
-                        onChange={(e) => setPin(e.target.value.toUpperCase())}
-                        className={cn("w-full bg-transparent border-2 rounded-2xl px-6 py-4 font-black text-2xl text-center mb-6 tracking-widest focus:outline-none transition-all", darkMode ? "border-white/5 focus:border-blue-500" : "border-neutral-100 focus:border-blue-500")}
-                    />
-                    <button onClick={handleVerifyPin} disabled={loading} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-500/20 hover:scale-[1.02] active:scale-98 transition-all disabled:opacity-50">
-                        {loading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "ACCEDER"}
+
+                    <div className="space-y-4 mb-8">
+                        <div className="relative">
+                            <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                            <input 
+                                required
+                                type="text" 
+                                placeholder="Matrícula" 
+                                value={formData.matricula}
+                                onChange={(e) => setFormData({...formData, matricula: e.target.value})}
+                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
+                            />
+                        </div>
+                        <div className="relative">
+                            <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                            <input 
+                                required
+                                type="text" 
+                                placeholder="Nombre Completo" 
+                                value={formData.nombre}
+                                onChange={(e) => setFormData({...formData, nombre: e.target.value})}
+                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
+                            />
+                        </div>
+                        <div className="relative">
+                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                            <input 
+                                required
+                                type="email" 
+                                placeholder="Correo Institucional" 
+                                value={formData.correo}
+                                onChange={(e) => setFormData({...formData, correo: e.target.value})}
+                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
+                            />
+                        </div>
+                        <div className="relative">
+                            <ShieldAlert className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                            <input 
+                                required
+                                type="text" 
+                                placeholder="PIN de la Sala" 
+                                value={formData.pin}
+                                onChange={(e) => setFormData({...formData, pin: e.target.value.toUpperCase()})}
+                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-black text-lg focus:outline-none transition-all tracking-[0.2em]", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
+                            />
+                        </div>
+                    </div>
+
+                    <button type="submit" disabled={loading} className="w-full py-5 bg-blue-600 text-white rounded-[24px] font-black shadow-xl shadow-blue-500/25 hover:scale-[1.02] active:scale-98 transition-all disabled:opacity-50">
+                        {loading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "ACCEDER AL EXAMEN"}
                     </button>
-                </div>
+                </form>
             </motion.div>
           )}
 
           {step === 'check' && (
             <motion.div key="check" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className={cn("p-12 rounded-[48px] border", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-2xl")}>
-              <h2 className="text-2xl font-black mb-10 text-center uppercase tracking-tight">Configuración de Cámara</h2>
+              <h2 className="text-2xl font-black mb-10 text-center uppercase tracking-tight">Verificación de Hardware</h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
                 <div className="relative group">
                   <div className="w-full aspect-video bg-black rounded-[32px] overflow-hidden relative border-4 border-neutral-200 dark:border-neutral-800 shadow-2xl">
@@ -159,7 +284,7 @@ export default function StudentPortal({ onExit, darkMode }) {
                     {!cameraGranted && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-md">
                             <Loader2 className="w-8 h-8 text-white animate-spin mb-4" />
-                            <span className="text-xs font-black text-white uppercase tracking-widest text-center px-6">Esperando permiso de cámara...</span>
+                            <span className="text-xs font-black text-white uppercase tracking-widest text-center px-6">Solicitando Acceso...</span>
                         </div>
                     )}
                   </div>
@@ -168,9 +293,13 @@ export default function StudentPortal({ onExit, darkMode }) {
                 <div className="space-y-6">
                     <CheckItem active={cameraGranted} label="Cámara Web" icon={<Camera className="w-5 h-5" />} />
                     <CheckItem active={micGranted} label="Micrófono" icon={<Mic className="w-5 h-5" />} />
-                    <div className="p-6 rounded-[28px] border-2 border-blue-500/20 bg-blue-500/5">
-                        <p className="text-xs font-medium text-neutral-500 leading-relaxed italic">
-                          "Centinela utilizará tu cámara únicamente para verificar la integridad del examen. No se grabará video sin tu consentimiento."
+                    <div className="p-8 rounded-[32px] border-2 border-blue-500/10 bg-blue-500/5">
+                        <div className="flex items-center gap-3 mb-3">
+                            <Video className="w-5 h-5 text-blue-600" />
+                            <span className="text-xs font-black uppercase text-blue-600">Aviso de Privacidad</span>
+                        </div>
+                        <p className="text-[11px] font-bold text-neutral-500 leading-relaxed italic">
+                          "El sistema detectará automáticamente objetos no permitidos y movimientos sospechosos. Tu privacidad está protegida."
                         </p>
                     </div>
                 </div>
@@ -179,64 +308,68 @@ export default function StudentPortal({ onExit, darkMode }) {
                 <button 
                   onClick={startExam} 
                   disabled={!cameraGranted} 
-                  className="px-16 py-5 bg-black dark:bg-white dark:text-black text-white rounded-[24px] text-base font-black hover:scale-[1.02] disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-2xl"
+                  className="px-16 py-6 bg-black dark:bg-white dark:text-black text-white rounded-[28px] text-base font-black hover:scale-[1.02] disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-2xl uppercase tracking-widest"
                 >
-                  <Play className="inline mr-2 w-5 h-5 fill-current" /> EMPEZAR EXAMEN
+                  <Play className="inline mr-3 w-5 h-5 fill-current" /> Iniciar Monitoreo
                 </button>
               </div>
             </motion.div>
           )}
 
           {step === 'active' && (
-            <motion.div key="active" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col lg:flex-row gap-8 h-[70vh]">
-              <div className={cn("flex-1 rounded-[40px] border overflow-hidden relative flex flex-col", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-xl")}>
-                <div className="px-8 py-4 border-b border-neutral-100 dark:border-white/5 flex items-center justify-between">
-                    <span className="text-xs font-black text-blue-600 uppercase tracking-widest">{examData?.title}</span>
+            <motion.div key="active" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col lg:flex-row gap-8 h-[75vh]">
+              <div className={cn("flex-1 rounded-[40px] border overflow-hidden relative flex flex-col shadow-2xl", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
+                <div className="px-10 py-6 border-b border-neutral-100 dark:border-white/5 flex items-center justify-between">
+                    <div>
+                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1 block">Examen en Curso</span>
+                        <h3 className="text-lg font-black tracking-tight">{examData?.titulo}</h3>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-neutral-400">PIN: <span className="text-blue-600">{examData?.pin_sala}</span></span>
+                    </div>
                 </div>
-                <div className="flex-1 bg-neutral-200 dark:bg-black/40 flex items-center justify-center p-12">
-                    <div className={cn("w-full h-full rounded-2xl shadow-2xl flex flex-col items-center justify-center p-10 text-center", darkMode ? "bg-[#181818]" : "bg-white")}>
-                        <Sparkles className="w-12 h-12 text-blue-500 mb-6" />
-                        <h3 className="text-xl font-black mb-4">Evaluación en Progreso</h3>
-                        <p className="text-sm text-neutral-500 max-w-md">El sistema está monitoreando activamente tu comportamiento mediante IA.</p>
-                        <div className="mt-10 space-y-4 w-full max-w-md text-left">
-                            <div className="p-4 rounded-xl border border-neutral-100 dark:border-white/5 bg-neutral-50 dark:bg-white/5">
-                                <p className="text-xs font-bold text-neutral-400 mb-2 uppercase tracking-widest">Instrucciones</p>
-                                <ul className="text-xs space-y-2 list-disc pl-4 text-neutral-500">
-                                  <li>Mantén tu rostro visible en todo momento.</li>
-                                  <li>No utilices dispositivos móviles.</li>
-                                  <li>Evita distracciones prolongadas.</li>
-                                </ul>
-                            </div>
+                <div className="flex-1 bg-neutral-100 dark:bg-black/40 flex items-center justify-center p-12">
+                    <div className={cn("w-full h-full rounded-[40px] shadow-2xl flex flex-col items-center justify-center p-16 text-center border", darkMode ? "bg-[#0d0d0d] border-white/5" : "bg-white border-neutral-100")}>
+                        <div className="w-24 h-24 bg-blue-600/10 rounded-full flex items-center justify-center mb-8 relative">
+                            <ShieldAlert className="w-10 h-10 text-blue-600" />
+                            <div className="absolute inset-0 rounded-full border-2 border-blue-600/30 animate-ping" />
                         </div>
+                        <h3 className="text-2xl font-black mb-4 uppercase tracking-tight">Centinela Activo</h3>
+                        <p className="text-sm text-neutral-500 max-w-md leading-relaxed">
+                            No cierres esta pestaña. El monitoreo por IA se suspenderá si cambias de ventana o apagas la cámara.
+                        </p>
                     </div>
                 </div>
               </div>
 
-              <div className="w-full lg:w-80 space-y-6 shrink-0">
-                <div className={cn("p-6 rounded-[32px] border", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-lg")}>
-                  <div className="w-full aspect-video bg-black rounded-[24px] overflow-hidden relative border-2 border-neutral-800">
+              <div className="w-full lg:w-96 space-y-6 shrink-0">
+                <div className={cn("p-8 rounded-[40px] border shadow-xl", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
+                  <div className="w-full aspect-video bg-black rounded-[32px] overflow-hidden relative border-2 border-neutral-800 shadow-inner">
                     <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                    <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
-                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                        <span className="text-[9px] text-white font-black uppercase tracking-widest">IA ACTIVA</span>
+                    <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
+                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+                        <span className="text-[10px] text-white font-black uppercase tracking-widest">LIVE</span>
                     </div>
                   </div>
                   
-                  <div className="mt-6 pt-6 border-t border-neutral-100 dark:border-white/5">
-                      <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-4 block">Alertas Recientes</span>
-                      <div className="space-y-3">
+                  <div className="mt-8 pt-8 border-t border-neutral-100 dark:border-white/5">
+                      <div className="flex items-center justify-between mb-6">
+                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Señales IA</span>
+                        <span className="text-[10px] font-black text-emerald-500 uppercase">Conectado</span>
+                      </div>
+                      <div className="space-y-4">
                           {alerts.length === 0 ? (
-                              <div className="flex items-center gap-2 text-emerald-500">
-                                <CheckCircle2 className="w-4 h-4" />
-                                <span className="text-[10px] font-bold uppercase tracking-tight">Comportamiento Normal</span>
+                              <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-600">
+                                <CheckCircle2 className="w-5 h-5" />
+                                <span className="text-[10px] font-black uppercase">Sin Incidencias</span>
                               </div>
                           ) : (
                               alerts.map((a, i) => (
-                                <motion.div key={i} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex items-start gap-3 p-3 rounded-2xl bg-red-500/5 border border-red-500/10">
-                                    <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                                <motion.div key={i} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex items-start gap-4 p-4 rounded-2xl bg-red-500/5 border border-red-500/10">
+                                    <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
                                     <div>
-                                        <span className="text-[10px] font-black text-red-600 uppercase block">{a.type}</span>
-                                        <p className="text-[9px] text-neutral-500 leading-tight">{a.message}</p>
+                                        <span className="text-[10px] font-black text-red-600 uppercase block mb-1">{a.type}</span>
+                                        <p className="text-[10px] text-neutral-500 leading-tight font-medium">{a.message}</p>
                                     </div>
                                 </motion.div>
                               ))
@@ -255,12 +388,12 @@ export default function StudentPortal({ onExit, darkMode }) {
 
 function CheckItem({ active, label, icon }) {
     return (
-        <div className={cn("p-6 rounded-[28px] border-2 transition-all flex items-center justify-between", active ? "bg-emerald-500/10 border-emerald-500/20" : "bg-neutral-50 dark:bg-white/5 border-neutral-100 dark:border-white/5")}>
-            <div className="flex items-center gap-4">
-                <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center transition-colors", active ? "bg-emerald-500 text-white" : "bg-neutral-200 dark:bg-white/10 text-neutral-400")}>
+        <div className={cn("p-8 rounded-[32px] border-2 transition-all flex items-center justify-between", active ? "bg-emerald-500/10 border-emerald-500/20" : "bg-neutral-50 dark:bg-white/5 border-neutral-100 dark:border-white/5")}>
+            <div className="flex items-center gap-5">
+                <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-sm", active ? "bg-emerald-500 text-white" : "bg-neutral-200 dark:bg-white/10 text-neutral-400")}>
                     {icon}
                 </div>
-                <span className="text-sm font-black uppercase">{label}</span>
+                <span className="text-sm font-black uppercase tracking-tight">{label}</span>
             </div>
             {active && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
         </div>
