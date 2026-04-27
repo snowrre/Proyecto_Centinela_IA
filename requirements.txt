@@ -1,0 +1,15 @@
+streamlit
+opencv-python-headless
+mediapipe
+numpy<2.0.0
+ultralytics
+onnxruntime
+supabase
+python-dotenv
+Pillow
+aiohttp
+streamlit-webrtc
+av
+streamlit-autorefresh
+ollama
+SpeechRecognition
