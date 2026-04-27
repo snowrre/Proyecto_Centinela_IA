@@ -150,32 +150,46 @@ function MonitorView({ darkMode }) {
   };
 
   const handleDeleteExam = async (pin) => {
-    if (!confirm(`¿Estás seguro de que deseas eliminar la sala ${pin}?`)) return;
+    const confirmMsg = pin ? `¿Seguro que quieres eliminar la sala ${pin}?` : "¿Seguro que quieres eliminar esta sala corrupta?";
+    if (!window.confirm(confirmMsg)) return;
     
     try {
-      // 1. Eliminar de Supabase (intentar siempre)
-      try {
-        await supabase.from('exams').delete().eq('pin_sala', pin);
-      } catch (e) {
-        console.warn("Supabase delete failed, proceeding with local delete:", e);
+      console.log("Intentando eliminar sala:", pin);
+      
+      // 1. Eliminar de Supabase (si hay PIN)
+      if (pin) {
+        try {
+          await supabase.from('exams').delete().eq('pin_sala', pin);
+        } catch (e) {
+          console.warn("Supabase delete failed:", e);
+        }
       }
 
-      // 2. Eliminar de localStorage (vital para el usuario)
+      // 2. Eliminar de localStorage (usando PIN o filtrando corruptos)
       const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
-      const filtered = localExams.filter(e => String(e.pin_sala) !== String(pin));
-      localStorage.setItem('active_exams', JSON.stringify(filtered));
+      const filtered = localExams.filter(e => {
+        if (!pin) return e.pin_sala; // Si no hay pin buscado, mantenemos los que si tienen
+        return String(e.pin_sala) !== String(pin);
+      });
+      
+      // Si el pin era nulo/vacio, eliminamos el primer elemento sin pin para limpiar basura
+      if (!pin) {
+        const firstCorruptIndex = localExams.findIndex(e => !e.pin_sala);
+        if (firstCorruptIndex > -1) localExams.splice(firstCorruptIndex, 1);
+        localStorage.setItem('active_exams', JSON.stringify(localExams));
+        setActiveExams([...localExams]);
+      } else {
+        localStorage.setItem('active_exams', JSON.stringify(filtered));
+        setActiveExams(filtered);
+      }
 
-      // 3. Actualizar estado local inmediatamente
-      setActiveExams(filtered);
       if (filterPin === pin) setFilterPin(null);
       
-      // 4. Refrescar datos por si acaso
       fetchData();
-      
-      alert(`Sala ${pin} eliminada.`);
+      alert("Sala eliminada correctamente.");
     } catch (err) {
       console.error("Error deleting exam:", err);
-      alert("Error al procesar la eliminación");
+      alert("No se pudo eliminar la sala. Reintenta.");
     }
   };
 
@@ -363,11 +377,15 @@ function MonitorView({ darkMode }) {
                         <div className="flex items-center justify-between mb-10">
                             <div className="px-6 py-2 bg-blue-600 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-lg shadow-blue-600/20">{exam.pin_sala}</div>
                             <button 
-                                onClick={() => handleDeleteExam(exam.pin_sala)}
-                                className="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 transition-all hover:scale-110 active:scale-95"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDeleteExam(exam.pin_sala);
+                                }}
+                                className="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 transition-all hover:scale-110 active:scale-95 cursor-pointer z-30"
                                 title="Eliminar Sala"
                             >
-                                <Trash2 className="w-5 h-5" />
+                                <Trash2 className="w-5 h-5 pointer-events-none" />
                             </button>
                         </div>
                         <h4 className="text-xl font-black mb-2 uppercase tracking-tight">{exam.titulo}</h4>
