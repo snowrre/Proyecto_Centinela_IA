@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   ShieldAlert, Eye, Mic, AlertCircle, AlertTriangle,
   Settings, Users, BarChart3, Search, 
-  Sun, Moon, Presentation, LogOut, PlusSquare
+  Sun, Moon, Presentation, LogOut, PlusSquare, Trash2
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -105,19 +105,25 @@ export default function App() {
 
 function MonitorView({ darkMode }) {
   const [logs, setLogs] = useState([]);
+  const [activeExams, setActiveExams] = useState([]);
 
-  const fetchLogs = async () => {
+  const fetchData = async () => {
     try {
-      const { data, error } = await supabase.from('camera_logs').select('*').order('timestamp', { ascending: false }).limit(100);
-      if (!error) setLogs(data || []);
+      // Fetch logs
+      const { data: logData, error: logError } = await supabase.from('camera_logs').select('*').order('timestamp', { ascending: false }).limit(100);
+      if (!logError) setLogs(logData || []);
+
+      // Fetch active exams
+      const { data: examData, error: examError } = await supabase.from('exams').select('*').order('created_at', { ascending: false });
+      if (!examError) setActiveExams(examData || []);
     } catch (e) {
-      console.error("Error fetching logs:", e);
+      console.error("Error fetching dashboard data:", e);
     }
   };
 
   useEffect(() => {
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 10000);
+    fetchData();
+    const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -126,8 +132,48 @@ function MonitorView({ darkMode }) {
       <div className="grid grid-cols-4 gap-6">
         <KpiCard title="Alertas Críticas" value={logs.filter(l => l.risk_score >= 80).length} icon={<AlertCircle className="w-5 h-5 text-red-500" />} dark={darkMode} />
         <KpiCard title="Avisos (Amarillo)" value={logs.filter(l => l.risk_score > 40 && l.risk_score < 80).length} icon={<AlertTriangle className="w-5 h-5 text-yellow-500" />} dark={darkMode} />
-        <KpiCard title="IA Visión" value={logs.filter(l => l.event_type?.includes('vision')).length} icon={<Eye className="w-5 h-5 text-blue-500" />} dark={darkMode} />
+        <KpiCard title="Salas Activas" value={activeExams.length} icon={<Presentation className="w-5 h-5 text-blue-500" />} dark={darkMode} />
         <KpiCard title="Estado Sistema" value="ACTIVO" icon={<div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(234,179,8,0.5)]" />} dark={darkMode} />
+      </div>
+
+      {/* Sección de Salas Activas */}
+      <div className="space-y-4">
+        <h3 className="text-xs font-black uppercase tracking-widest text-neutral-500">Exámenes Publicados</h3>
+        <div className="grid grid-cols-3 gap-6">
+          {activeExams.map(exam => (
+            <div key={exam.id || exam.pin} className={cn("p-6 rounded-[28px] border transition-all hover:scale-[1.02]", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-sm")}>
+              <div className="flex items-center justify-between mb-6">
+                <div className="px-3 py-1 bg-blue-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest">{exam.pin}</div>
+                <span className="text-[10px] text-neutral-500 font-bold uppercase">{exam.questions?.length || 0} Preguntas</span>
+              </div>
+              <h4 className="text-sm font-black mb-1 truncate uppercase tracking-tight">{exam.title}</h4>
+              <p className="text-[10px] text-neutral-500 font-medium mb-6 uppercase tracking-wider">Creado: {new Date(exam.created_at || Date.now()).toLocaleDateString()}</p>
+              
+              <div className="pt-4 border-t dark:border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  <span className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">En Línea</span>
+                </div>
+                <button 
+                  onClick={async () => {
+                    if (confirm("¿Seguro que quieres cerrar esta sala?")) {
+                      await supabase.from('exams').delete().eq('pin', exam.pin);
+                      fetchData();
+                    }
+                  }}
+                  className="text-red-500 hover:text-red-600 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+          {activeExams.length === 0 && (
+            <div className={cn("col-span-3 p-12 rounded-[28px] border border-dashed text-center", darkMode ? "border-white/10" : "border-neutral-200")}>
+              <span className="text-xs font-bold text-neutral-400 italic uppercase tracking-widest">No hay salas activas. Crea un examen para comenzar.</span>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className={cn("rounded-[32px] border shadow-2xl overflow-hidden", darkMode ? "border-white/10 bg-[#111111]" : "border-neutral-200 bg-white")}>
