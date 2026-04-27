@@ -152,24 +152,29 @@ function MonitorView({ darkMode }) {
   const handleDeleteExam = async (pin) => {
     if (!confirm(`¿Estás seguro de que deseas eliminar la sala ${pin}?`)) return;
     
-    try {
-      // 1. Eliminar de Supabase
-      const { error } = await supabase.from('exams').delete().eq('pin_sala', pin);
-      if (error) throw error;
+      // 1. Eliminar de Supabase (intentar siempre)
+      try {
+        await supabase.from('exams').delete().eq('pin_sala', pin);
+      } catch (e) {
+        console.warn("Supabase delete failed, proceeding with local delete:", e);
+      }
 
-      // 2. Eliminar de localStorage
+      // 2. Eliminar de localStorage (vital para el usuario)
       const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
-      const filtered = localExams.filter(e => e.pin_sala !== pin);
+      const filtered = localExams.filter(e => String(e.pin_sala) !== String(pin));
       localStorage.setItem('active_exams', JSON.stringify(filtered));
 
-      // 3. Actualizar estado
-      setActiveExams(prev => prev.filter(e => e.pin_sala !== pin));
+      // 3. Actualizar estado local inmediatamente
+      setActiveExams(filtered);
       if (filterPin === pin) setFilterPin(null);
       
-      alert("Sala eliminada correctamente");
+      // 4. Refrescar datos por si acaso
+      fetchData();
+      
+      alert(`Sala ${pin} eliminada.`);
     } catch (err) {
       console.error("Error deleting exam:", err);
-      alert("Error al eliminar la sala");
+      alert("Error al procesar la eliminación");
     }
   };
 
@@ -358,7 +363,7 @@ function MonitorView({ darkMode }) {
                             <div className="px-6 py-2 bg-blue-600 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-lg shadow-blue-600/20">{exam.pin_sala}</div>
                             <button 
                                 onClick={() => handleDeleteExam(exam.pin_sala)}
-                                className="p-3 rounded-2xl bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white"
+                                className="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 transition-all hover:scale-110 active:scale-95"
                                 title="Eliminar Sala"
                             >
                                 <Trash2 className="w-5 h-5" />
