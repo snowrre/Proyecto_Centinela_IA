@@ -22,6 +22,7 @@ export default function StudentPortal({ onExit, darkMode }) {
   const [cameraGranted, setCameraGranted] = useState(false);
   const [micGranted, setMicGranted] = useState(false);
   const [alerts, setAlerts] = useState([]);
+  const [suspicionScore, setSuspicionScore] = useState(0);
   const [loading, setLoading] = useState(false);
   
   const videoRef = useRef(null);
@@ -80,11 +81,14 @@ export default function StudentPortal({ onExit, darkMode }) {
       alert("Se requiere acceso a la cámara y micrófono para realizar el examen.");
     }
   };
-
   const startExam = async () => {
     setStep('active');
-    
     engineRef.current = new CentinelaEngine({
+      onStatus: (status) => {
+        if (status.suspicionScore !== undefined) {
+          setSuspicionScore(status.suspicionScore);
+        }
+      },
       onAlert: async (alertData) => {
         setAlerts(prev => [alertData, ...prev].slice(0, 5));
         
@@ -317,51 +321,47 @@ export default function StudentPortal({ onExit, darkMode }) {
           )}
 
           {step === 'active' && (
-            <motion.div key="active" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col lg:flex-row gap-8 h-[75vh]">
-              <div className={cn("flex-1 rounded-[40px] border overflow-hidden relative flex flex-col shadow-2xl", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
-                <div className="px-10 py-6 border-b border-neutral-100 dark:border-white/5 flex items-center justify-between">
-                    <div>
-                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1 block">Examen en Curso</span>
-                        <h3 className="text-lg font-black tracking-tight">{examData?.titulo}</h3>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <span className="text-xs font-bold text-neutral-400">PIN: <span className="text-blue-600">{examData?.pin_sala}</span></span>
-                    </div>
-                </div>
-                <div className="flex-1 bg-neutral-100 dark:bg-black/40 flex items-center justify-center p-12">
-                    <div className={cn("w-full h-full rounded-[40px] shadow-2xl flex flex-col items-center justify-center p-16 text-center border", darkMode ? "bg-[#0d0d0d] border-white/5" : "bg-white border-neutral-100")}>
-                        <div className="w-24 h-24 bg-blue-600/10 rounded-full flex items-center justify-center mb-8 relative">
-                            <ShieldAlert className="w-10 h-10 text-blue-600" />
-                            <div className="absolute inset-0 rounded-full border-2 border-blue-600/30 animate-ping" />
-                        </div>
-                        <h3 className="text-2xl font-black mb-4 uppercase tracking-tight">Centinela Activo</h3>
-                        <p className="text-sm text-neutral-500 max-w-md leading-relaxed">
-                            No cierres esta pestaña. El monitoreo por IA se suspenderá si cambias de ventana o apagas la cámara.
-                        </p>
-                    </div>
-                </div>
-              </div>
-
-              <div className="w-full lg:w-96 space-y-6 shrink-0">
-                <div className={cn("p-8 rounded-[40px] border shadow-xl", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
-                  <div className="w-full aspect-video bg-black rounded-[32px] overflow-hidden relative border-2 border-neutral-800 shadow-inner">
+            <motion.div key="active" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col lg:flex-row gap-8 min-h-[85vh]">
+              {/* LADO IZQUIERDO: MONITOREO IA */}
+              <div className="w-full lg:w-[400px] space-y-6 shrink-0">
+                <div className={cn("p-8 rounded-[40px] border shadow-2xl sticky top-28", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
+                  <div className="w-full aspect-video bg-black rounded-[32px] overflow-hidden relative border-2 border-neutral-800 shadow-2xl mb-8">
                     <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
                     <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
                         <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-                        <span className="text-[10px] text-white font-black uppercase tracking-widest">LIVE</span>
+                        <span className="text-[10px] text-white font-black uppercase tracking-widest">CENTINELA LIVE</span>
+                    </div>
+                  </div>
+
+                  {/* Barra de Sospecha */}
+                  <div className="space-y-3 mb-8">
+                    <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Nivel de Sospecha</span>
+                        <span className={cn("text-xs font-black", suspicionScore > 50 ? "text-red-500" : (suspicionScore > 20 ? "text-yellow-500" : "text-emerald-500"))}>
+                            {suspicionScore}%
+                        </span>
+                    </div>
+                    <div className="h-3 w-full bg-neutral-200 dark:bg-white/5 rounded-full overflow-hidden">
+                        <motion.div 
+                            animate={{ width: `${suspicionScore}%` }}
+                            className={cn("h-full transition-colors duration-500", suspicionScore > 50 ? "bg-red-500" : (suspicionScore > 20 ? "bg-yellow-500" : "bg-emerald-500"))}
+                        />
                     </div>
                   </div>
                   
-                  <div className="mt-8 pt-8 border-t border-neutral-100 dark:border-white/5">
+                  <div className="pt-8 border-t border-neutral-100 dark:border-white/5">
                       <div className="flex items-center justify-between mb-6">
-                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Señales IA</span>
-                        <span className="text-[10px] font-black text-emerald-500 uppercase">Conectado</span>
+                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Alertas de IA</span>
+                        <span className="text-[10px] font-black text-emerald-500 uppercase flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                            Activo
+                        </span>
                       </div>
                       <div className="space-y-4">
                           {alerts.length === 0 ? (
-                              <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-600">
+                              <div className="flex items-center gap-3 p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-600">
                                 <CheckCircle2 className="w-5 h-5" />
-                                <span className="text-[10px] font-black uppercase">Sin Incidencias</span>
+                                <span className="text-[10px] font-black uppercase">Sin Incidentes</span>
                               </div>
                           ) : (
                               alerts.map((a, i) => (
@@ -378,6 +378,66 @@ export default function StudentPortal({ onExit, darkMode }) {
                   </div>
                 </div>
               </div>
+
+              {/* LADO DERECHO: EXAMEN */}
+              <div className={cn("flex-1 rounded-[40px] border overflow-hidden flex flex-col shadow-2xl", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
+                <div className="px-12 py-10 border-b border-neutral-100 dark:border-white/5 flex items-center justify-between bg-blue-600">
+                    <div>
+                        <span className="text-[10px] font-black text-blue-100 uppercase tracking-[0.2em] mb-2 block">Evaluación Digital</span>
+                        <h3 className="text-2xl font-black text-white uppercase tracking-tight">{examData?.titulo}</h3>
+                    </div>
+                    <div className="text-right">
+                        <span className="text-[10px] font-black text-blue-100 uppercase block mb-1">Alumno</span>
+                        <span className="text-sm font-bold text-white">{formData.nombre}</span>
+                    </div>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-12 space-y-12">
+                    {examData?.preguntas && examData.preguntas.length > 0 ? (
+                        examData.preguntas.map((q, idx) => (
+                            <div key={idx} className="space-y-6">
+                                <div className="flex gap-6">
+                                    <span className="w-10 h-10 bg-neutral-100 dark:bg-white/5 rounded-2xl flex items-center justify-center text-xs font-black shrink-0">{idx + 1}</span>
+                                    <h4 className="text-lg font-bold leading-relaxed">{q.text}</h4>
+                                </div>
+                                {q.type === 'multiple' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-16">
+                                        {q.options.map(opt => (
+                                            <button key={opt.id} className="text-left p-5 rounded-[20px] border-2 border-neutral-100 dark:border-white/5 hover:border-blue-600 hover:bg-blue-600/5 transition-all flex items-center gap-4 group">
+                                                <div className="w-6 h-6 rounded-full border-2 border-neutral-300 dark:border-neutral-700 flex items-center justify-center group-hover:border-blue-600">
+                                                    <span className="text-[10px] font-black uppercase text-neutral-400 group-hover:text-blue-600">{opt.id}</span>
+                                                </div>
+                                                <span className="text-sm font-bold">{opt.text}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                {q.type === 'open' && (
+                                    <div className="ml-16">
+                                        <textarea 
+                                            placeholder="Escribe tu respuesta aquí..."
+                                            className="w-full p-6 rounded-[24px] border-2 border-neutral-100 dark:border-white/5 bg-transparent focus:border-blue-600 focus:outline-none transition-all font-medium"
+                                            rows={4}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        ))
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-20 text-center">
+                            <CheckCircle2 className="w-12 h-12 text-emerald-500 mb-4" />
+                            <h4 className="text-lg font-black uppercase mb-2">Examen Completado o Sin Preguntas</h4>
+                            <p className="text-xs text-neutral-500 uppercase tracking-widest">Espera instrucciones de tu docente.</p>
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-8 border-t dark:border-white/5 bg-neutral-50 dark:bg-white/2 flex justify-end">
+                    <button onClick={exitPortal} className="px-10 py-4 bg-emerald-600 text-white rounded-[20px] font-black uppercase text-xs tracking-widest hover:scale-105 transition-all shadow-xl shadow-emerald-600/20">
+                        Enviar Respuestas
+                    </button>
+                </div>
+               </div>
             </motion.div>
           )}
         </AnimatePresence>

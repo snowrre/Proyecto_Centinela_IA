@@ -9,7 +9,8 @@ export class CentinelaEngine {
         this.objectModel = null;
         this.isRunning = false;
         this.lastAlertTime = 0;
-        this.suspicionStreak = 0;
+        this.suspicionScore = 0;
+        this.lastScoreUpdate = Date.now();
     }
 
     async init() {
@@ -45,6 +46,14 @@ export class CentinelaEngine {
             if (!this.isRunning) return;
             
             if (videoElement.readyState === 4) {
+                // Decaimiento natural de la sospecha (cada segundo baja un poco)
+                const now = Date.now();
+                if (now - this.lastScoreUpdate > 1000) {
+                    this.suspicionScore = Math.max(0, this.suspicionScore - 2);
+                    this.lastScoreUpdate = now;
+                    this.callbacks.onStatus?.({ suspicionScore: this.suspicionScore });
+                }
+
                 // Procesar cara
                 await this.faceMesh.send({ image: videoElement });
                 
@@ -81,11 +90,9 @@ export class CentinelaEngine {
         const horizontalRatio = (nose.x - leftSide.x) / (rightSide.x - leftSide.x);
         
         if (horizontalRatio < 0.35) {
-            this.handleViolation("MIRADA_LATERAL", "Mirando hacia la izquierda");
+            this.handleViolation("MIRADA_LATERAL", "Mirando hacia la izquierda", 5);
         } else if (horizontalRatio > 0.65) {
-            this.handleViolation("MIRADA_LATERAL", "Mirando hacia la derecha");
-        } else {
-            this.suspicionStreak = 0;
+            this.handleViolation("MIRADA_LATERAL", "Mirando hacia la derecha", 5);
         }
     }
 
@@ -95,13 +102,18 @@ export class CentinelaEngine {
         );
 
         if (suspicious && suspicious.score > 0.6) {
-            this.handleViolation("OBJETO_PROHIBIDO", `Se detectó: ${suspicious.class}`);
+            this.handleViolation("OBJETO_PROHIBIDO", `Se detectó: ${suspicious.class}`, 25);
         }
     }
 
-    handleViolation(type, msg) {
+    handleViolation(type, msg, scorePenalty = 10) {
         const now = Date.now();
-        if (now - this.lastAlertTime > 3000) { // Throttle 3s
+        
+        // Incrementar sospecha
+        this.suspicionScore = Math.min(100, this.suspicionScore + scorePenalty);
+        this.callbacks.onStatus?.({ suspicionScore: this.suspicionScore });
+
+        if (now - this.lastAlertTime > 4000) { // Throttle 4s para alertas persistentes
             this.lastAlertTime = now;
             this.callbacks.onAlert({ type, message: msg, timestamp: now });
         }

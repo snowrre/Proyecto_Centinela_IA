@@ -330,6 +330,12 @@ if "stop_audio_event" not in st.session_state:
     st.session_state.stop_audio_event = threading.Event()
 if "audio_thread" not in st.session_state:
     st.session_state.audio_thread = None
+if "command_thread" not in st.session_state:
+    st.session_state.command_thread = None
+if "teacher_warning" not in st.session_state:
+    st.session_state.teacher_warning = None
+if "force_logout" not in st.session_state:
+    st.session_state.force_logout = False
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 import urllib.request
@@ -443,34 +449,42 @@ def start_audio_monitor(attempt_id: str):
                     try:
                         # Escuchar ráfagas de máximo 5 segundos
                         audio = r.listen(source, phrase_time_limit=5)
-                        # Offload a la nube (Google API en español)
-                        text = r.recognize_google(audio, language="es-MX").strip()
+                        
+                        # Fase 1: Detección de volumen (RMS) para ruidos fuertes
+                        audio_data = np.frombuffer(audio.get_raw_data(), dtype=np.int16)
+                        rms = np.sqrt(np.mean(audio_data.astype(float)**2))
+                        
+                        # Fase 2: Reconocimiento de voz
+                        text = ""
+                        try:
+                            text = r.recognize_google(audio, language="es-MX").strip()
+                        except: pass
 
-                        if text and supabase:
-                            print(f"📝 Escuché: {text}")
-                            # Subir a la tabla camera_logs con datos de identidad
+                        # Si hay texto o el volumen es excesivo (> 2500 es un grito/golpe fuerte)
+                        if (text or rms > 2500) and supabase:
+                            desc = text if text else f"Ruido fuerte detectado (Nivel: {int(rms)})"
+                            print(f"📝 Evento Audio: {desc}")
+                            
                             try:
-                                # Persistencia Agresiva: Si la IP se perdió, en el hilo usamos la función fallback  
                                 ip_a_guardar = st.session_state.get("user_ip", "Desconocida")
                                 if ip_a_guardar == "Desconocida":
                                     ip_a_guardar = obtener_ip_publica()
 
                                 supabase.table("camera_logs").insert({
                                     "attempt_id":     attempt_id,
-                                    "event_type":     "audio_sospechoso",
-                                    "description":    text,
+                                    "event_type":     "AUDIO_SOSPECHOSO",
+                                    "description":    desc,
                                     "nombre_completo": _nombre,
                                     "matricula":      _matricula,
                                     "correo":         _correo,
                                     "ip_address":     ip_a_guardar,
                                     "pin_sala":       _pin_sala,
                                 }).execute()
-                                print("✅ Insert en Supabase exitoso.")
                             except Exception as e:
                                 print(f"❌ Error en audio (Supabase): {e}")
 
                     except sr.UnknownValueError:
-                        pass  # Ruido ininteligible, viento, silencio → ignorar pacíficamente
+                        pass 
                     except sr.RequestError as e:
                         print(f"⚠️ Error de red en audio (Google API): {e}")
                     except Exception as e:
@@ -492,6 +506,64 @@ def start_audio_monitor(attempt_id: str):
 
     t = threading.Thread(target=_audio_loop, daemon=True)
     st.session_state.audio_thread = t
+    t.start()
+
+
+def start_command_listener():
+    """
+    Escucha la tabla 'commands' en Supabase para recibir órdenes del docente
+    (Advertencias, Expulsión, etc.) en tiempo real.
+    """
+    if st.session_state.command_thread and st.session_state.command_thread.is_alive():
+        return
+
+    _matricula = st.session_state.user_matricula
+    if not _matricula: return
+
+    def _command_loop():
+        print(f"📡 Oyente de comandos activado para: {_matricula}")
+        last_check_id = 0
+        
+        # Primero obtenemos el ID más alto existente para solo escuchar lo nuevo
+        try:
+            res = supabase.table("commands").select("id").order("id", desc=True).limit(1).execute()
+            if res.data:
+                last_check_id = res.data[0]['id']
+        except: pass
+
+        while st.session_state.user_matricula:
+            try:
+                # Polling corto (Supabase Realtime Python client es inestable en algunos entornos, 
+                # usamos polling de 3s para máxima compatibilidad)
+                res = supabase.table("commands")\
+                    .select("*")\
+                    .eq("matricula", _matricula)\
+                    .gt("id", last_check_id)\
+                    .order("id", desc=True)\
+                    .execute()
+
+                if res.data:
+                    for cmd_entry in res.data:
+                        cmd = cmd_entry.get("command")
+                        payload = cmd_entry.get("payload", {})
+                        
+                        if cmd == "EXPULSAR":
+                            st.session_state.force_logout = True
+                            print("🚨 ORDEN RECIBIDA: EXPULSAR")
+                        elif cmd == "ALERTA":
+                            st.session_state.teacher_warning = payload.get("message", "Llamada de atención del docente.")
+                            print("⚠️ ADVERTENCIA RECIBIDA")
+                        
+                        if cmd_entry['id'] > last_check_id:
+                            last_check_id = cmd_entry['id']
+                
+            except Exception as e:
+                print(f"Error en oyente de comandos: {e}")
+            
+            time.sleep(3)
+
+    t = threading.Thread(target=_command_loop, daemon=True)
+    st.session_state.command_thread = t
     t.start()
 
 
@@ -700,9 +772,9 @@ class CentinelaProcessor(VideoProcessorBase):
 
         self._frame_count += 1
         
-        # Subida de frames a Supabase (cada 4 segundos)
+        # Subida de frames a Supabase (cada 2 segundos para monitoreo "En Vivo")
         curr_time = time.time()
-        if curr_time - self.last_snapshot_time >= 4.0:
+        if curr_time - self.last_snapshot_time >= 2.0:
             self.last_snapshot_time = curr_time
             if self.supabase and self.matricula and self.matricula != "Desconocido":
                 try:
@@ -719,7 +791,15 @@ class CentinelaProcessor(VideoProcessorBase):
                                     file_options={"upsert": "true", "contentType": "image/jpeg"}
                                 )
                             except Exception as e:
-                                print(f"Error subiendo snapshot en vivo: {e}")
+                                # Si falla el upload directo (archivo existe), usamos update
+                                try:
+                                    self.supabase.storage.from_("snapshots").update(
+                                        f"{self.matricula}.jpg",
+                                        buf.tobytes(),
+                                        file_options={"upsert": "true", "contentType": "image/jpeg"}
+                                    )
+                                except:
+                                    pass
                         threading.Thread(target=_upload_snapshot, args=(buffer,), daemon=True).start()
                 except Exception:
                     pass
@@ -798,6 +878,7 @@ if not st.session_state.user_matricula:
                                         pass
 
                                 st.success(f"¡Bienvenido de nuevo, {usuario['nombre']}! Sala: {pin_login}")
+                                start_command_listener() # Activar oyente de comandos
                                 time.sleep(1)
                                 st.rerun()
                             else:
@@ -851,6 +932,7 @@ if not st.session_state.user_matricula:
                                 pass
 
                         st.success("✅ ¡Registro exitoso! Iniciando sesión...")
+                        start_command_listener() # Activar oyente de comandos
                         time.sleep(1.5)
                         st.rerun()
                         
@@ -863,16 +945,37 @@ if not st.session_state.user_matricula:
 else:
     # --- ENRUTADOR POST-LOGIN ---
     if st.session_state.get('user_rol') == "Docente":
+        # ... (código existente del docente)
         st.markdown("""
             <div style='text-align:center; padding: 50px; background: rgba(255,255,255,0.05); border-radius:20px; border: 1px solid rgba(255,255,255,0.1); margin-top: 50px;'>
                 <h3 style='color: #00b09b;'>✅ Identidad de Docente Confirmada</h3>
                 <p style='color: white;'>Abriendo el Centro de Mando en una nueva pestaña...</p>
             </div>
         """, unsafe_allow_html=True)
-        
-        # Redirección automática local
         st.markdown('<meta http-equiv="refresh" content="2; url=http://localhost:8502">', unsafe_allow_html=True)
-        st.stop() # Apaga la vista de alumno
+        st.stop()
+
+    # --- GESTIÓN DE COMANDOS DEL DOCENTE (UI) ---
+    if st.session_state.force_logout:
+        st.markdown("""
+            <div style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; color:white; font-family:sans-serif;'>
+                <h1 style='color:#ef4444; font-size:4rem;'>🚫 EXAMEN FINALIZADO</h1>
+                <p style='font-size:1.5rem; max-width:600px;'>Tu sesión ha sido terminada por el docente supervisor debido a irregularidades detectadas.</p>
+                <div style='margin-top:30px; padding:20px; border:1px solid rgba(255,255,255,0.2); border-radius:20px;'>
+                    Consulte con su institución para más detalles.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        time.sleep(5)
+        st.session_state.user_matricula = None
+        st.rerun()
+        st.stop()
+
+    if st.session_state.teacher_warning:
+        st.warning(f"⚠️ MENSAJE DEL DOCENTE: {st.session_state.teacher_warning}")
+        if st.button("He leído la advertencia"):
+            st.session_state.teacher_warning = None
+            st.rerun()
 
     with st.sidebar:
         # ── Logo + toggle de tema ────────────────────────────────────────────
