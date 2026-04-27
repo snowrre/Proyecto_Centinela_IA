@@ -9,6 +9,7 @@ import { twMerge } from 'tailwind-merge';
 import { supabase } from './lib/supabase';
 import LoginLanding from './components/LoginLanding';
 import MagicExamCreator from './components/MagicExamCreator';
+import StudentPortal from './components/StudentPortal';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -41,6 +42,10 @@ export default function App() {
         onLoginStudent={() => setView('student_dashboard')} 
       />
     );
+  }
+
+  if (view === 'student_dashboard') {
+    return <StudentPortal onLogout={() => setView('landing')} />;
   }
 
   return (

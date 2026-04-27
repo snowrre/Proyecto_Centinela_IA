@@ -11,11 +11,22 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
   const handleLogin = (e) => {
     e.preventDefault();
     setLoading(true);
+    
+    // Simulación de validación de cuentas reales solicitadas por el usuario
     setTimeout(() => {
       setLoading(false);
-      if (view === 'teacher_login') onLoginTeacher();
-      else onLoginStudent();
-    }, 1000);
+      
+      const isTeacher = view === 'teacher_login' && email === 'docente@centinela.ia' && password === 'docente123';
+      const isStudent = view === 'student_login' && email === 'alumno@centinela.ia' && password === 'alumno123';
+
+      if (isTeacher) {
+        onLoginTeacher();
+      } else if (isStudent) {
+        onLoginStudent();
+      } else {
+        alert("Credenciales incorrectas. Por favor verifica tus datos.");
+      }
+    }, 1200);
   };
 
   return (
@@ -138,15 +149,6 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                   {loading ? 'Procesando...' : 'Entrar'}
                 </button>
               </form>
-
-              <div className="mt-8 pt-6 border-t border-neutral-100">
-                <button 
-                  onClick={view === 'teacher_login' ? onLoginTeacher : onLoginStudent}
-                  className="w-full py-2.5 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2"
-                >
-                  <span>⚠️</span> Modo Pruebas (Saltar Login)
-                </button>
-              </div>
             </div>
           )}
         </div>
