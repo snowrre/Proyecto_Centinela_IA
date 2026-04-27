@@ -14,7 +14,6 @@ export default function StudentPortal({ onExit, darkMode }) {
   const [step, setStep] = useState('login'); // login, check, active
   const [formData, setFormData] = useState({
     matricula: '',
-    nombre: '',
     correo: '',
     pin: ''
   });
@@ -31,36 +30,38 @@ export default function StudentPortal({ onExit, darkMode }) {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (!formData.pin || !formData.matricula) return;
+    if (!formData.pin || !formData.matricula || !formData.correo) {
+      alert("Por favor completa todos los campos.");
+      return;
+    }
     setLoading(true);
     
     try {
       // Verificar PIN en Supabase
-      const { data, error } = await supabase
+      const { data, error: sbError } = await supabase
         .from('exams')
         .select('id, pin_sala, titulo, preguntas, created_at')
         .eq('pin_sala', formData.pin.toUpperCase())
-        .single();
+        .maybeSingle(); // Usar maybeSingle para evitar excepciones en errores de consulta
 
       if (data) {
         setExamData(data);
         setStep('check');
         initCamera();
-      } else {
-        alert("PIN Inválido. Por favor verifica con tu docente.");
-      }
-    } catch (err) {
-      console.error("Error verifying PIN:", err);
-      // Fallback para pruebas con PIN 5700
-      if (formData.pin === '5700') {
-        setExamData({ titulo: "Examen de Prueba (Local)", pin_sala: '5700' });
+      } else if (formData.pin === '5700') {
+        // Master PIN Fallback
+        setExamData({ titulo: "Examen de Prueba Centinela", pin_sala: '5700', preguntas: [] });
         setStep('check');
         initCamera();
       } else {
-        alert("Error de conexión con el servidor.");
+        alert("PIN Inválido o Sala no encontrada. Verifica con tu docente.");
       }
+    } catch (err) {
+      console.error("Login exception:", err);
+      alert("Error de conexión. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const initCamera = async () => {
@@ -96,7 +97,7 @@ export default function StudentPortal({ onExit, darkMode }) {
         await supabase.from('camera_logs').insert([{
           event_type: alertData.type,
           description: alertData.message,
-          nombre_completo: formData.nombre,
+          nombre_completo: formData.matricula, // Usamos matrícula como identificador principal
           matricula: formData.matricula,
           correo: formData.correo,
           pin_sala: formData.pin.toUpperCase(),
@@ -226,35 +227,24 @@ export default function StudentPortal({ onExit, darkMode }) {
 
                     <div className="space-y-4 mb-8">
                         <div className="relative">
-                            <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                            <input 
+                                required
+                                type="email" 
+                                placeholder="Correo Electrónico" 
+                                value={formData.correo}
+                                onChange={(e) => setFormData({...formData, correo: e.target.value})}
+                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
+                            />
+                        </div>
+                        <div className="relative">
+                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
                             <input 
                                 required
                                 type="text" 
                                 placeholder="Matrícula" 
                                 value={formData.matricula}
                                 onChange={(e) => setFormData({...formData, matricula: e.target.value})}
-                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
-                            />
-                        </div>
-                        <div className="relative">
-                            <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                            <input 
-                                required
-                                type="text" 
-                                placeholder="Nombre Completo" 
-                                value={formData.nombre}
-                                onChange={(e) => setFormData({...formData, nombre: e.target.value})}
-                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
-                            />
-                        </div>
-                        <div className="relative">
-                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                            <input 
-                                required
-                                type="email" 
-                                placeholder="Correo Institucional" 
-                                value={formData.correo}
-                                onChange={(e) => setFormData({...formData, correo: e.target.value})}
                                 className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
                             />
                         </div>
@@ -387,8 +377,8 @@ export default function StudentPortal({ onExit, darkMode }) {
                         <h3 className="text-2xl font-black text-white uppercase tracking-tight">{examData?.titulo}</h3>
                     </div>
                     <div className="text-right">
-                        <span className="text-[10px] font-black text-blue-100 uppercase block mb-1">Alumno</span>
-                        <span className="text-sm font-bold text-white">{formData.nombre}</span>
+                        <span className="text-[10px] font-black text-blue-100 uppercase block mb-1">Matrícula</span>
+                        <span className="text-sm font-bold text-white">{formData.matricula}</span>
                     </div>
                 </div>
                 
