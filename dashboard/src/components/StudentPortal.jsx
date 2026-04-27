@@ -10,14 +10,14 @@ function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
 
-export default function StudentPortal({ onExit, darkMode }) {
-  const [step, setStep] = useState('login'); // login, check, active
-  const [formData, setFormData] = useState({
-    matricula: '',
-    correo: '',
-    pin: ''
+export default function StudentPortal({ onExit, darkMode, studentData }) {
+  const [step, setStep] = useState('check'); // Empezar directamente en verificación
+  const [formData] = useState({
+    matricula: studentData?.matricula || '',
+    correo: studentData?.correo || '',
+    pin: studentData?.pin || ''
   });
-  const [examData, setExamData] = useState(null);
+  const [examData, setExamData] = useState(studentData?.exam || null);
   const [cameraGranted, setCameraGranted] = useState(false);
   const [micGranted, setMicGranted] = useState(false);
   const [alerts, setAlerts] = useState([]);
@@ -28,40 +28,15 @@ export default function StudentPortal({ onExit, darkMode }) {
   const streamRef = useRef(null);
   const engineRef = useRef(null);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    if (!formData.pin || !formData.matricula || !formData.correo) {
-      alert("Por favor completa todos los campos.");
-      return;
+  useEffect(() => {
+    if (studentData) {
+      initCamera();
     }
-    setLoading(true);
-    
-    try {
-      // Verificar PIN en Supabase
-      const { data, error: sbError } = await supabase
-        .from('exams')
-        .select('id, pin_sala, titulo, preguntas, created_at')
-        .eq('pin_sala', formData.pin.toUpperCase())
-        .maybeSingle(); // Usar maybeSingle para evitar excepciones en errores de consulta
+  }, [studentData]);
 
-      if (data) {
-        setExamData(data);
-        setStep('check');
-        initCamera();
-      } else if (formData.pin === '5700') {
-        // Master PIN Fallback
-        setExamData({ titulo: "Examen de Prueba Centinela", pin_sala: '5700', preguntas: [] });
-        setStep('check');
-        initCamera();
-      } else {
-        alert("PIN Inválido o Sala no encontrada. Verifica con tu docente.");
-      }
-    } catch (err) {
-      console.error("Login exception:", err);
-      alert("Error de conexión. Intenta de nuevo.");
-    } finally {
-      setLoading(false);
-    }
+  const handleLogin = (e) => {
+    e.preventDefault();
+    // Ya no es necesario, el login ocurre en la landing
   };
 
   const initCamera = async () => {
@@ -214,59 +189,7 @@ export default function StudentPortal({ onExit, darkMode }) {
 
       <main className="max-w-6xl mx-auto px-6 py-12">
         <AnimatePresence mode="wait">
-          {step === 'login' && (
-            <motion.div key="login" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col items-center justify-center min-h-[70vh]">
-                <form onSubmit={handleLogin} className={cn("w-full max-w-lg p-10 rounded-[40px] border shadow-2xl", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
-                    <div className="text-center mb-10">
-                        <div className="w-16 h-16 bg-blue-600/10 rounded-3xl flex items-center justify-center mb-4 mx-auto">
-                            <Lock className="w-8 h-8 text-blue-600" />
-                        </div>
-                        <h2 className="text-2xl font-black uppercase tracking-tight">Acceso Estudiante</h2>
-                        <p className="text-xs text-neutral-500 font-medium">Completa tus datos para iniciar el monitoreo.</p>
-                    </div>
-
-                    <div className="space-y-4 mb-8">
-                        <div className="relative">
-                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                            <input 
-                                required
-                                type="email" 
-                                placeholder="Correo Electrónico" 
-                                value={formData.correo}
-                                onChange={(e) => setFormData({...formData, correo: e.target.value})}
-                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
-                            />
-                        </div>
-                        <div className="relative">
-                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                            <input 
-                                required
-                                type="text" 
-                                placeholder="Matrícula" 
-                                value={formData.matricula}
-                                onChange={(e) => setFormData({...formData, matricula: e.target.value})}
-                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-bold text-sm focus:outline-none transition-all", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
-                            />
-                        </div>
-                        <div className="relative">
-                            <ShieldAlert className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                            <input 
-                                required
-                                type="text" 
-                                placeholder="PIN de la Sala" 
-                                value={formData.pin}
-                                onChange={(e) => setFormData({...formData, pin: e.target.value.toUpperCase()})}
-                                className={cn("w-full pl-12 pr-6 py-4 rounded-2xl border-2 font-black text-lg focus:outline-none transition-all tracking-[0.2em]", darkMode ? "bg-white/5 border-white/5 focus:border-blue-500 text-white" : "bg-neutral-50 border-neutral-100 focus:border-blue-500")}
-                            />
-                        </div>
-                    </div>
-
-                    <button type="submit" disabled={loading} className="w-full py-5 bg-blue-600 text-white rounded-[24px] font-black shadow-xl shadow-blue-500/25 hover:scale-[1.02] active:scale-98 transition-all disabled:opacity-50">
-                        {loading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "ACCEDER AL EXAMEN"}
-                    </button>
-                </form>
-            </motion.div>
-          )}
+          {/* El paso de login ha sido movido a LoginLanding.jsx */}
 
           {step === 'check' && (
             <motion.div key="check" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className={cn("p-12 rounded-[48px] border", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-2xl")}>

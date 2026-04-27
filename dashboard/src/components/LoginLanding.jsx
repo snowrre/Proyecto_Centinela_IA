@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck, ArrowRight, Mail, Lock, User, GraduationCap, ChevronLeft } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
   const [view, setView] = useState('selection'); // selection, teacher_login, student_login
@@ -8,25 +9,44 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     
-    // Simulación de validación de cuentas reales solicitadas por el usuario
-    setTimeout(() => {
-      setLoading(false);
-      
-      const isTeacher = view === 'teacher_login' && email === 'docente@centinela.ia' && password === 'docente123';
-      const isStudent = view === 'student_login' && email === 'alumno@centinela.ia' && password === 'alumno123';
-
-      if (isTeacher) {
-        onLoginTeacher();
-      } else if (isStudent) {
-        onLoginStudent();
+    try {
+      if (view === 'teacher_login') {
+        // Validación docente (estática por ahora como pidió el usuario)
+        if (email === 'docente@centinela.ia' && password === 'docente123') {
+          onLoginTeacher();
+        } else {
+          alert("Credenciales de docente incorrectas.");
+        }
       } else {
-        alert("Credenciales incorrectas. Por favor verifica tus datos.");
+        // VALIDACIÓN REAL ALUMNO (Email, Matrícula as Password, Room PIN)
+        const { data, error } = await supabase
+          .from('exams')
+          .select('id, pin_sala, titulo, preguntas, created_at')
+          .eq('pin_sala', roomCode.toUpperCase())
+          .maybeSingle();
+
+        if (data || roomCode === '5700') {
+          const finalData = data || { titulo: "Examen de Prueba", pin_sala: '5700', preguntas: [] };
+          onLoginStudent({ 
+            correo: email, 
+            matricula: password, // El usuario dijo que la contraseña sea la matrícula
+            pin: roomCode.toUpperCase(),
+            exam: finalData 
+          });
+        } else {
+          alert("PIN de Sala no válido o no existe.");
+        }
       }
-    }, 1200);
+    } catch (err) {
+      console.error("Login error:", err);
+      alert("Error de conexión con el servidor.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -98,7 +118,7 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">Correo Electrónico</label>
+                  <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">Correo Institucional</label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                     <input 
@@ -113,30 +133,32 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">Contraseña</label>
+                  <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">
+                    {view === 'teacher_login' ? 'Contraseña' : 'Matrícula'}
+                  </label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                     <input 
-                      type="password" 
+                      type="text" // Cambiado a text para matrícula según screenshot
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all"
-                      placeholder="••••••••"
+                      placeholder={view === 'teacher_login' ? '••••••••' : 'Tu Matrícula'}
                     />
                   </div>
                 </div>
 
                 {view === 'student_login' && (
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">Clave de Sala</label>
+                    <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">PIN de Sala</label>
                     <input 
                       type="text" 
                       required
                       value={roomCode}
-                      onChange={(e) => setRoomCode(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all"
-                      placeholder="Ej. MAT-101"
+                      onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                      className="w-full px-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm font-black tracking-widest focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all"
+                      placeholder="MAT-101"
                     />
                   </div>
                 )}
@@ -146,7 +168,7 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                   disabled={loading}
                   className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 mt-4"
                 >
-                  {loading ? 'Procesando...' : 'Entrar'}
+                  {loading ? 'Validando...' : 'Entrar al Examen'}
                 </button>
               </form>
             </div>

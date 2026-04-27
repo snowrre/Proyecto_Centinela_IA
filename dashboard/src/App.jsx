@@ -28,21 +28,27 @@ export default function App() {
     else document.documentElement.classList.remove('dark');
   }, [teacherTab, darkMode]);
 
+  const [studentData, setStudentData] = useState(null);
+
   const handleLogout = () => {
     setView('landing');
+    setStudentData(null);
   };
 
   if (view === 'landing') {
     return (
       <LoginLanding 
         onLoginTeacher={() => setView('teacher_dashboard')} 
-        onLoginStudent={() => setView('student_dashboard')} 
+        onLoginStudent={(data) => {
+          setStudentData(data);
+          setView('student_dashboard');
+        }} 
       />
     );
   }
 
   if (view === 'student_dashboard') {
-    return <StudentPortal onExit={handleLogout} darkMode={darkMode} />;
+    return <StudentPortal onExit={handleLogout} darkMode={darkMode} studentData={studentData} />;
   }
 
   return (
