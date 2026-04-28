@@ -168,32 +168,30 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     setPin(generatedPin);
     
-    const newExam = { 
-      pin_sala: generatedPin, 
-      titulo: examTitle, 
-      preguntas: questions,
-      created_at: new Date().toISOString()
-    };
-    
     try {
-        const { error } = await supabase.from('exams')
-            .insert([newExam]);
-        
-        if (error) {
-            console.error("Supabase error:", error);
-            // Si el error es de columna faltante, notificamos pero permitimos avanzar localmente para no bloquear al usuario
-            if (error.message?.includes('column') || error.code === 'PGRST116') {
-                setErrorMessage("⚠️ Error de Base de Datos: Faltan columnas en la tabla 'exams'. El examen se creó localmente pero no se guardó en la nube. Ejecuta el SQL de reparación.");
-            } else {
-                throw error;
-            }
-        }
-        
-        const existing = JSON.parse(localStorage.getItem('active_exams') || '[]');
-        localStorage.setItem('active_exams', JSON.stringify([newExam, ...existing]));
-        
-        // Redirigir siempre al paso 4 para que el docente vea su PIN
-        setStep(4);
+      const { error } = await supabase
+        .from('exams')
+        .insert([
+          { 
+            pin: generatedPin.toString(), 
+            config: JSON.stringify(questions),
+            title: examTitle
+          }
+        ]);
+
+      if (error) {
+        throw error;
+      }
+
+      const newExamRecord = { 
+        pin_sala: generatedPin, 
+        titulo: examTitle, 
+        preguntas: questions,
+        created_at: new Date().toISOString()
+      };
+      const existing = JSON.parse(localStorage.getItem('active_exams') || '[]');
+      localStorage.setItem('active_exams', JSON.stringify([newExamRecord, ...existing]));
+      setStep(4);
     } catch (err) {
         console.error("Error saving to Supabase:", err);
         setErrorMessage(`Error crítico al publicar: ${err.message || 'Error de conexión'}`);

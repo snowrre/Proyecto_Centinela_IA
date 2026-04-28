@@ -134,15 +134,20 @@ function MonitorView({ darkMode }) {
       setStudentStatus(status);
 
       const { data: examData, error: examError } = await supabase.from('exams')
-        .select('id, pin_sala, titulo, created_at')
+        .select('id, pin, title, created_at, config')
         .order('created_at', { ascending: false });
       
       const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
       
       // Combinar y eliminar duplicados por PIN
-      const combined = [...(examData || [])];
+      const combined = [...(examData || [])].map(e => ({
+        ...e,
+        pin_sala: e.pin, // Mantener compatibilidad interna si otros componentes lo usan
+        titulo: e.title
+      }));
+      
       localExams.forEach(local => {
-        if (!combined.find(e => e.pin_sala === local.pin_sala)) {
+        if (!combined.find(e => e.pin === local.pin || e.pin_sala === local.pin_sala)) {
           combined.push(local);
         }
       });
@@ -156,29 +161,27 @@ function MonitorView({ darkMode }) {
     }
   };
 
-  const handleDeleteExam = async (pin) => {
+  const handleDeleteExam = async (pinToDelete) => {
     try {
-      // 1. Intentar borrar de Supabase
-      if (pin && pin !== "") {
-        await supabase.from('exams').delete().eq('pin_sala', pin);
-      }
-
-      // 2. Limpiar LocalStorage (siempre)
-      const local = JSON.parse(localStorage.getItem('active_exams') || '[]');
-      const filtered = local.filter(e => String(e.pin_sala) !== String(pin));
-      localStorage.setItem('active_exams', JSON.stringify(filtered));
-
-      // 3. Actualizar UI
-      setActiveExams(prev => prev.filter(e => String(e.pin_sala) !== String(pin)));
-      setDeletingPin(null);
-      if (filterPin === pin) setFilterPin(null);
+      const { error } = await supabase
+        .from('exams')
+        .delete()
+        .eq('pin', pinToDelete);
+        
+      if (error) throw error;
       
-      fetchData();
-    } catch (err) {
-      console.error("Error en eliminación:", err);
-      // Fallback: al menos quitar de la vista local
-      setActiveExams(prev => prev.filter(e => String(e.pin_sala) !== String(pin)));
+      // Actualizar estado local
+      setActiveExams(prev => prev.filter(exam => (exam.pin || exam.pin_sala) !== pinToDelete));
       setDeletingPin(null);
+      if (filterPin === pinToDelete) setFilterPin(null);
+
+      // Limpiar LocalStorage
+      const local = JSON.parse(localStorage.getItem('active_exams') || '[]');
+      const filtered = local.filter(e => String(e.pin || e.pin_sala) !== String(pinToDelete));
+      localStorage.setItem('active_exams', JSON.stringify(filtered));
+      
+    } catch (err) {
+      console.error("Error al eliminar el examen:", err);
     }
   };
 
@@ -364,13 +367,13 @@ function MonitorView({ darkMode }) {
                 {activeExams.map(exam => (
                     <div key={exam.id} className={cn("p-10 rounded-[40px] border group transition-all hover:shadow-2xl", darkMode ? "bg-[#111111] border-white/10 hover:border-blue-500/50" : "bg-white border-neutral-200")}>
                         <div className="flex items-center justify-between mb-10">
-                            <div className="px-6 py-2 bg-blue-600 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-lg shadow-blue-600/20">{exam.pin_sala || "SIN PIN"}</div>
+                            <div className="px-6 py-2 bg-blue-600 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-lg shadow-blue-600/20">{exam.pin || exam.pin_sala || "SIN PIN"}</div>
                             <div className="flex gap-2">
-                                {deletingPin === (exam.pin_sala || exam.id) ? (
+                                {deletingPin === (exam.pin || exam.pin_sala || exam.id) ? (
                                     <div className="flex items-center gap-2 animate-in fade-in zoom-in duration-300">
                                         <button 
                                             type="button"
-                                            onClick={(e) => { e.stopPropagation(); handleDeleteExam(exam.pin_sala); }}
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteExam(exam.pin || exam.pin_sala); }}
                                             className="px-4 py-2 bg-red-600 text-white text-[10px] font-black rounded-xl uppercase"
                                         >
                                             Confirmar
@@ -386,7 +389,7 @@ function MonitorView({ darkMode }) {
                                 ) : (
                                     <button 
                                         type="button"
-                                        onClick={(e) => { e.stopPropagation(); setDeletingPin(exam.pin_sala || exam.id); }}
+                                        onClick={(e) => { e.stopPropagation(); setDeletingPin(exam.pin || exam.pin_sala || exam.id); }}
                                         className="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 transition-all hover:scale-110 active:scale-95 cursor-pointer"
                                         title="Eliminar Sala"
                                     >

@@ -9,41 +9,59 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [error, setError] = useState(null);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
-    try {
-      if (view === 'teacher_login') {
-        // Validación docente (estática por ahora como pidió el usuario)
-        if (email === 'docente@centinela.ia' && password === 'docente123') {
-          onLoginTeacher();
-        } else {
-          alert("Credenciales de docente incorrectas.");
-        }
-      } else {
-        // VALIDACIÓN REAL ALUMNO (Email, Matrícula as Password, Room PIN)
-        const { data, error } = await supabase
-          .from('exams')
-          .select('id, pin_sala, titulo, preguntas, created_at')
-          .eq('pin_sala', roomCode.toUpperCase())
-          .maybeSingle();
+    setError(null);
 
-        if (data || roomCode === '5700') {
-          const finalData = data || { titulo: "Examen de Prueba", pin_sala: '5700', preguntas: [] };
-          onLoginStudent({ 
-            correo: email, 
-            matricula: password, // El usuario dijo que la contraseña sea la matrícula
-            pin: roomCode.toUpperCase(),
-            exam: finalData 
-          });
+    // --- MODO SALVAVIDAS (DEMO) ---
+    // Si el internet de la escuela falla o bloquea Supabase, este usuario siempre entrará
+    if (email === 'admin@utc.edu.mx' && password === 'tesis2026') {
+      alert("Entrando en Modo Administrador (Bypass local)");
+      setLoading(false);
+      if (onLoginTeacher) onLoginTeacher({ id: 'admin-bypass', email: 'admin@utc.edu.mx' });
+      return;
+    }
+
+    try {
+      if (isRegistering) {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        alert("¡Registro exitoso! Ya puedes iniciar sesión.");
+        setIsRegistering(false); 
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        
+        // Validamos si es docente usando la función o el estado actual
+        const esDocente = (typeof isTeacherEmail === 'function' && isTeacherEmail(email)) || view === 'teacher_login';
+
+        if (esDocente) {
+          // Redirige al panel del docente
+          if (onLoginTeacher) onLoginTeacher(data.user); 
         } else {
-          alert("PIN de Sala no válido o no existe.");
+          // Redirige a la vista de la cámara del alumno pasando la matrícula y el PIN
+          if (onLoginStudent) {
+            onLoginStudent({ 
+              ...data.user,
+              matricula: password, 
+              roomCode: roomCode
+            });
+          }
         }
       }
     } catch (err) {
-      console.error("Login error:", err);
-      alert("Error de conexión con el servidor.");
+      // --- MANEJO DE ERRORES AMPLIADO ---
+      if (err.message.includes('Invalid login credentials')) {
+        setError("Correo o contraseña incorrectos.");
+      } else if (err.message.includes('rate limit')) {
+        setError("Has intentado muchas veces. Espera un minuto o usa el usuario administrador.");
+      } else {
+        setError("Error: " + err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -110,11 +128,21 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
               </button>
 
               <h2 className="text-lg font-bold mb-1">
-                {view === 'teacher_login' ? 'Bienvenido, Docente' : 'Acceso a Examen'}
+                {view === 'teacher_login' 
+                  ? (isRegistering ? 'Crear Cuenta Docente' : 'Bienvenido, Docente') 
+                  : 'Acceso a Examen'}
               </h2>
               <p className="text-xs text-neutral-500 mb-8">
-                {view === 'teacher_login' ? 'Introduce tus credenciales para continuar.' : 'Ingresa tus datos para comenzar la evaluación.'}
+                {view === 'teacher_login' 
+                  ? (isRegistering ? 'Regístrate para gestionar tus evaluaciones.' : 'Introduce tus credenciales para continuar.') 
+                  : 'Ingresa tus datos para comenzar la evaluación.'}
               </p>
+
+              {error && (
+                <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-[10px] font-bold uppercase tracking-tight flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4" /> {error}
+                </div>
+              )}
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-1">
@@ -139,7 +167,7 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                     <input 
-                      type="text" // Cambiado a text para matrícula según screenshot
+                      type={view === 'teacher_login' ? 'password' : 'text'}
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
@@ -168,8 +196,24 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                   disabled={loading}
                   className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 mt-4"
                 >
-                  {loading ? 'Validando...' : 'Entrar al Examen'}
+                  {loading 
+                    ? 'Validando...' 
+                    : (view === 'teacher_login' 
+                        ? (isRegistering ? 'Crear Cuenta' : 'Entrar al Panel Docente') 
+                        : 'Entrar al Examen')}
                 </button>
+
+                {view === 'teacher_login' && (
+                  <div className="mt-4 text-center">
+                    <button 
+                      type="button" 
+                      onClick={() => setIsRegistering(!isRegistering)}
+                      className="text-xs text-blue-600 hover:underline font-bold"
+                    >
+                      {isRegistering ? '¿Ya tienes cuenta? Inicia sesión aquí' : '¿No tienes cuenta? Regístrate aquí'}
+                    </button>
+                  </div>
+                )}
               </form>
             </div>
           )}
