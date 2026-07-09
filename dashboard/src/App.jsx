@@ -3,23 +3,45 @@ import {
   ShieldAlert, AlertCircle, AlertTriangle,
   Users, BarChart3, Search, Settings,
   Sun, Moon, Presentation, LogOut, PlusSquare, Trash2,
-  Activity, Video, Clock, ChevronRight, Mic
+  Activity, Video, Clock, ChevronRight, Mic,
+  MonitorSmartphone, Laptop
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { supabase } from './lib/supabase';
 import LoginLanding from './components/LoginLanding';
+import MarketingLanding from './components/MarketingLanding';
 import MagicExamCreator from './components/MagicExamCreator';
 import StudentPortal from './components/StudentPortal';
+import AdminDashboard from './components/AdminDashboard';
+import BiometricAuth from './components/BiometricAuth';
+import ProcesarPago from './components/ProcesarPago';
+import { useBiometric } from './context/BiometricContext';
+import { Toaster } from 'react-hot-toast';
+import { useDeviceRestriction } from './hooks/useDeviceRestriction';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
 
 export default function App() {
-  const [view, setView] = useState('landing');
+  const [view, setView] = useState(() => {
+    // Si venimos de Stripe (después del pago), mostramos el componente de procesamiento
+    if (new URLSearchParams(window.location.search).get('session_id')) {
+      return 'procesar_pago';
+    }
+    return 'marketing';
+  });
   const [teacherTab, setTeacherTab] = useState(() => localStorage.getItem('centinela_tab') || 'monitor');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('centinela_dark') === 'true');
+
+  // ── Restricción de dispositivo móvil ─────────────────────────────────────
+  // Se evalúa UNA sola vez al montar. isChecking evita un flash del contenido
+  // mientras la detección corre (es síncrona, pero React batchea el primer render).
+  const { isMobile, isChecking } = useDeviceRestriction();
+
+  // Contexto biométrico — para limpiar el rostroMaestro en logout
+  const { clearBiometric } = useBiometric();
 
   useEffect(() => {
     localStorage.setItem('centinela_tab', teacherTab);
@@ -28,21 +50,104 @@ export default function App() {
     else document.documentElement.classList.remove('dark');
   }, [teacherTab, darkMode]);
 
-  const [studentData, setStudentData] = useState(null);
+  const [studentData, setStudentData] = useState(() => {
+    const session = localStorage.getItem('centinela_session');
+    try { return session ? JSON.parse(session) : null; } catch(e) { return null; }
+  });
 
   const handleLogout = () => {
     setView('landing');
     setStudentData(null);
+    clearBiometric(); // Limpiar descriptor facial en memoria al cerrar sesión
+    // Ghost-Session Fix: borrar la sesión del localStorage para que el ex-alumno
+    // no quede "fantasma" disparando alertas desde el Login si vuelve a la app.
+    localStorage.removeItem('centinela_session');
   };
+
+  // ── PANTALLA DE BLOQUEO: Dispositivo no permitido ───────────────────────
+  // Se muestra antes de cualquier otra vista para que el alumno nunca vea
+  // ni un frame del contenido del examen desde su teléfono.
+  if (isChecking) {
+    // Pantalla en blanco mínima mientras se detecta el dispositivo.
+    // Dura <1ms en la práctica (es código síncrono), pero evita el flash.
+    return (
+      <div style={{ minHeight: '100vh', background: '#0a0a0a' }} />
+    );
+  }
+
+  if (isMobile) {
+    return <MobileBlockScreen />;
+  }
+
+  if (view === 'marketing') {
+    return <MarketingLanding onGoToLogin={() => setView('landing')} />;
+  }
+
+  if (view === 'procesar_pago') {
+    const pendingClientId = localStorage.getItem('centinela_pending_client_id');
+    return (
+      <ProcesarPago 
+        clientId={pendingClientId} 
+        onVerificationSuccess={(datos) => {
+          // Limpiar estado temporal y limpiar URL sin recargar
+          localStorage.removeItem('centinela_pending_client_id');
+          window.history.replaceState({}, document.title, window.location.pathname.split('?')[0]);
+          // Mandamos al usuario al login (o directamente al dashboard si estuviera auto-logueado)
+          setView('landing');
+        }} 
+      />
+    );
+  }
 
   if (view === 'landing') {
     return (
       <LoginLanding 
         onLoginTeacher={() => setView('teacher_dashboard')} 
-        onLoginStudent={(data) => {
+        onLoginStudent={async (data) => {
           setStudentData(data);
-          setView('student_dashboard');
+          // ── NUEVO: ir a verificación biométrica ANTES del portal del alumno ──
+          setView('biometric_auth');
+
+          // Guardar sesión en localStorage para persistencia
+          const sessionData = {
+            ...data,
+            timestamp: new Date().toISOString()
+          };
+          localStorage.setItem('centinela_session', JSON.stringify(sessionData));
+
+          // Registrar la conexión en Supabase
+          try {
+            await supabase.from('camera_logs').insert([{
+              pin_sala: data.roomCode || data.pin,
+              event_type: 'CONEXIÓN_ACTIVA',
+              description: 'El alumno ha ingresado a la sala y está activo.',
+              matricula: data.matricula,
+              nombre_completo: data.matricula,
+              created_at: new Date().toISOString()
+            }]);
+          } catch(err) {
+            console.error('Error registrando conexión:', err);
+          }
         }} 
+      />
+    );
+  }
+
+  // ── NUEVA VISTA: Prueba de Vida Biométrica ────────────────────────────────
+  if (view === 'biometric_auth') {
+    return (
+      <BiometricAuth
+        darkMode={darkMode}
+        studentInfo={studentData}
+        onSuccess={() => {
+          // Prueba de vida superada → continuar al portal del examen
+          setView('student_dashboard');
+        }}
+        onError={(err) => {
+          console.error('[App] Error en BiometricAuth:', err);
+          // En caso de error irrecuperable, volver al login
+          // (el componente ya muestra el mensaje de error con opción de recargar)
+        }}
       />
     );
   }
@@ -53,6 +158,18 @@ export default function App() {
 
   return (
     <div className={cn("min-h-screen flex transition-colors duration-300", darkMode ? "bg-surf-dark text-white" : "bg-[#f8f9fa] text-neutral-900")}>
+      <Toaster 
+        position="top-center"
+        toastOptions={{
+          className: '!rounded-2xl !shadow-lg !font-bold text-sm tracking-tight',
+          style: {
+            background: darkMode ? '#111' : '#fff',
+            color: darkMode ? '#fff' : '#000',
+            border: darkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.05)',
+            padding: '16px 24px',
+          }
+        }}
+      />
       {/* Sidebar */}
       <aside className={cn("w-72 border-r flex flex-col transition-all duration-500", darkMode ? "border-white/10 bg-[#050505]" : "border-neutral-200 bg-white")}>
         <div className="p-10 flex items-center gap-4">
@@ -92,381 +209,10 @@ export default function App() {
         </header>
 
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-1000">
-          {teacherTab === 'monitor' && <MonitorView darkMode={darkMode} />}
+          {teacherTab === 'monitor' && <AdminDashboard darkMode={darkMode} />}
           {teacherTab === 'creator' && <MagicExamCreator darkMode={darkMode} onComplete={() => setTeacherTab('monitor')} />}
         </div>
       </main>
-    </div>
-  );
-}
-
-function MonitorView({ darkMode }) {
-  const [logs, setLogs] = useState([]);
-  const [activeExams, setActiveExams] = useState([]);
-  const [studentStatus, setStudentStatus] = useState({});
-  const [filterPin, setFilterPin] = useState(null);
-  const [deletingPin, setDeletingPin] = useState(null);
-
-  const fetchData = async () => {
-    try {
-      const { data: logData } = await supabase
-        .from('camera_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
-      
-      setLogs(logData || []);
-
-      const status = {};
-      (logData || []).forEach(log => {
-        if (!status[log.matricula]) {
-          status[log.matricula] = {
-            nombre: log.nombre_completo,
-            matricula: log.matricula,
-            ultimo_evento: log.event_type,
-            fecha: log.created_at,
-            alerta: log.event_type?.includes('OBJETO') || log.event_type?.includes('sospechoso') || log.event_type?.includes('GAZE'),
-            pin_sala: log.pin_sala,
-            lastUpdate: Date.now()
-          };
-        }
-      });
-      setStudentStatus(status);
-
-      const { data: examData, error: examError } = await supabase.from('exams')
-        .select('id, pin, title, created_at, config')
-        .order('created_at', { ascending: false });
-      
-      const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
-      
-      // Combinar y eliminar duplicados por PIN
-      const combined = [...(examData || [])].map(e => ({
-        ...e,
-        pin_sala: e.pin, // Mantener compatibilidad interna si otros componentes lo usan
-        titulo: e.title
-      }));
-      
-      localExams.forEach(local => {
-        if (!combined.find(e => e.pin === local.pin || e.pin_sala === local.pin_sala)) {
-          combined.push(local);
-        }
-      });
-
-      setActiveExams(combined);
-      if (examError) console.warn("Note: Could not fetch all exams from DB, using local cache.");
-    } catch (e) {
-      console.error("Error fetching data:", e);
-      const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
-      setActiveExams(localExams);
-    }
-  };
-
-  const handleDeleteExam = async (pinToDelete) => {
-    try {
-      const { error } = await supabase
-        .from('exams')
-        .delete()
-        .eq('pin', pinToDelete);
-        
-      if (error) throw error;
-      
-      // Actualizar estado local
-      setActiveExams(prev => prev.filter(exam => (exam.pin || exam.pin_sala) !== pinToDelete));
-      setDeletingPin(null);
-      if (filterPin === pinToDelete) setFilterPin(null);
-
-      // Limpiar LocalStorage
-      const local = JSON.parse(localStorage.getItem('active_exams') || '[]');
-      const filtered = local.filter(e => String(e.pin || e.pin_sala) !== String(pinToDelete));
-      localStorage.setItem('active_exams', JSON.stringify(filtered));
-      
-    } catch (err) {
-      console.error("Error al eliminar el examen:", err);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-
-    // Suscripción Realtime a la tabla de logs
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'camera_logs' },
-        (payload) => {
-          const log = payload.new;
-          setLogs(prev => [log, ...prev].slice(0, 100));
-          setStudentStatus(prev => ({
-            ...prev,
-            [log.matricula]: {
-              nombre: log.nombre_completo,
-              matricula: log.matricula,
-              ultimo_evento: log.event_type,
-              fecha: log.created_at,
-              alerta: log.event_type?.includes('OBJETO') || log.event_type?.includes('sospechoso') || log.event_type?.includes('GAZE'),
-              pin_sala: log.pin_sala,
-              lastUpdate: Date.now() // Forzar refresco de imagen
-            }
-          }));
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  return (
-    <div className="p-12 space-y-12">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-        <KpiCard title="Alertas Críticas" value={logs.filter(l => l.event_type?.includes('OBJETO') || l.event_type?.includes('sospechoso')).length} icon={<AlertCircle className="w-6 h-6 text-red-500" />} dark={darkMode} color="red" />
-        <KpiCard title="Avisos Sistema" value={logs.filter(l => l.event_type?.includes('MIRADA') || l.event_type?.includes('AUSENCIA')).length} icon={<AlertTriangle className="w-6 h-6 text-yellow-500" />} dark={darkMode} color="yellow" />
-        <KpiCard title="Alumnos en Línea" value={Object.keys(studentStatus).length} icon={<Users className="w-6 h-6 text-blue-500" />} dark={darkMode} color="blue" />
-        <KpiCard title="Salas Activas" value={activeExams.length} icon={<Presentation className="w-6 h-6 text-purple-500" />} dark={darkMode} color="purple" />
-      </div>
-
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-            <h3 className="text-sm font-black uppercase tracking-[0.3em] text-neutral-500 flex items-center gap-3">
-                <Activity className="w-4 h-4 text-blue-600" /> 
-                {filterPin ? `Monitoreando Sala: ${filterPin}` : "Mapeo de Señales en Vivo"}
-            </h3>
-            <div className="flex gap-4">
-              {filterPin && (
-                <button 
-                  onClick={() => setFilterPin(null)}
-                  className="px-4 py-1.5 rounded-full bg-neutral-100 dark:bg-white/10 text-[10px] font-black uppercase tracking-widest border dark:border-white/10 hover:bg-neutral-200 dark:hover:bg-white/20 transition-all"
-                >
-                  Ver Todos
-                </button>
-              )}
-              <span className="px-4 py-1.5 rounded-full bg-blue-600/10 text-blue-600 text-[10px] font-black uppercase tracking-widest animate-pulse border border-blue-600/20">Sincronizado</span>
-            </div>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {Object.values(studentStatus)
-            .filter(student => !filterPin || student.pin_sala === filterPin)
-            .map(student => (
-            <div key={student.matricula} className={cn("p-8 rounded-[40px] border group transition-all hover:shadow-2xl relative", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-xl")}>
-              {/* Visualización de Cámara en Vivo */}
-              <div className="relative aspect-video rounded-3xl overflow-hidden mb-6 bg-neutral-900 shadow-inner group-hover:shadow-2xl transition-all duration-500">
-                <img 
-                  src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/snapshots/${student.matricula}.jpg?t=${student.lastUpdate}`}
-                  className="w-full h-full object-cover"
-                  alt="Live feed"
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
-                  }}
-                />
-                <div className="hidden absolute inset-0 flex flex-col items-center justify-center bg-neutral-800 text-neutral-500 gap-2">
-                  <Video className="w-6 h-6 opacity-20" />
-                  <span className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">Sin Señal</span>
-                </div>
-                
-                {/* Overlay Indicators */}
-                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-                  <div className="flex gap-1.5">
-                    {student.alerta && (
-                      <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
-                    )}
-                    <div className="px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg text-[8px] font-black text-white uppercase tracking-widest border border-white/10">
-                      LIVE
-                    </div>
-                  </div>
-                  {student.ultimo_evento?.includes('AUDIO') && (
-                    <div className="p-1.5 bg-red-600 rounded-lg shadow-lg">
-                      <Mic className="w-3 h-3 text-white" />
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-4">
-                  <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xs", student.alerta ? "bg-red-500 text-white" : "bg-blue-600 text-white shadow-lg shadow-blue-600/20")}>
-                      {student.nombre?.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <h4 className="text-sm font-black uppercase tracking-tight truncate">{student.nombre}</h4>
-                    <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{student.matricula}</span>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                   <button 
-                      onClick={async () => {
-                        const { error } = await supabase.from('commands').insert({
-                          matricula: student.matricula,
-                          command: 'ALERTA',
-                          payload: { message: 'Por favor mantén la vista en el examen.' }
-                        });
-                        if (!error) alert("Advertencia enviada");
-                      }}
-                      className="p-2 bg-yellow-500/10 text-yellow-600 rounded-xl hover:bg-yellow-500 hover:text-white transition-all shadow-sm" title="Enviar Advertencia">
-                      <ShieldAlert className="w-3.5 h-3.5" />
-                   </button>
-                   <button 
-                      onClick={async () => {
-                        if(confirm(`¿Expulsar a ${student.nombre}?`)) {
-                          await supabase.from('commands').insert({
-                            matricula: student.matricula,
-                            command: 'EXPULSAR'
-                          });
-                        }
-                      }}
-                      className="p-2 bg-red-500/10 text-red-600 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm" title="Expulsar Estudiante">
-                      <Trash2 className="w-3.5 h-3.5" />
-                   </button>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                    <span className={cn("px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border", 
-                      student.alerta ? "bg-red-600 text-white border-red-400" : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20")}>
-                        {student.ultimo_evento?.replace('_', ' ') || 'Normal'}
-                    </span>
-                    <span className="text-[9px] px-3 py-1.5 bg-neutral-100 dark:bg-white/5 rounded-full text-neutral-400 font-black uppercase tracking-widest border dark:border-white/5">{student.pin_sala}</span>
-                </div>
-                
-                <div className="pt-6 border-t dark:border-white/5 mt-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <Clock className="w-3.5 h-3.5 text-neutral-400" />
-                        <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">{new Date(student.fecha).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        const url = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/snapshots/${student.matricula}.jpg?t=${Date.now()}`;
-                        window.open(url, '_blank');
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-lg shadow-blue-600/20">
-                      Ampliar <ChevronRight className="w-3 h-3" />
-                    </button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {Object.keys(studentStatus).length === 0 && (
-            <div className="col-span-full py-20 text-center border-2 border-dashed rounded-[40px] border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-white/5">
-                <Users className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
-                <p className="text-xs font-black text-neutral-400 uppercase tracking-widest">Esperando conexión de alumnos...</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-        <div className="lg:col-span-2 space-y-8">
-            <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-neutral-500">Exámenes Activos</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {activeExams.map(exam => (
-                    <div key={exam.id} className={cn("p-10 rounded-[40px] border group transition-all hover:shadow-2xl", darkMode ? "bg-[#111111] border-white/10 hover:border-blue-500/50" : "bg-white border-neutral-200")}>
-                        <div className="flex items-center justify-between mb-10">
-                            <div className="px-6 py-2 bg-blue-600 text-white text-[10px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-lg shadow-blue-600/20">{exam.pin || exam.pin_sala || "SIN PIN"}</div>
-                            <div className="flex gap-2">
-                                {deletingPin === (exam.pin || exam.pin_sala || exam.id) ? (
-                                    <div className="flex items-center gap-2 animate-in fade-in zoom-in duration-300">
-                                        <button 
-                                            type="button"
-                                            onClick={(e) => { e.stopPropagation(); handleDeleteExam(exam.pin || exam.pin_sala); }}
-                                            className="px-4 py-2 bg-red-600 text-white text-[10px] font-black rounded-xl uppercase"
-                                        >
-                                            Confirmar
-                                        </button>
-                                        <button 
-                                            type="button"
-                                            onClick={(e) => { e.stopPropagation(); setDeletingPin(null); }}
-                                            className="px-4 py-2 bg-neutral-200 dark:bg-white/10 text-neutral-500 text-[10px] font-black rounded-xl uppercase"
-                                        >
-                                            No
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <button 
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); setDeletingPin(exam.pin || exam.pin_sala || exam.id); }}
-                                        className="p-3 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 transition-all hover:scale-110 active:scale-95 cursor-pointer"
-                                        title="Eliminar Sala"
-                                    >
-                                        <Trash2 className="w-5 h-5 pointer-events-none" />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                        <h4 className="text-xl font-black mb-2 uppercase tracking-tight">{exam.titulo}</h4>
-                        <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest mb-10">Creado: {new Date(exam.created_at).toLocaleDateString()}</p>
-                        
-                        <div className="flex items-center justify-between">
-                            <div className="flex -space-x-3">
-                                {[1,2,3].map(i => <div key={i} className="w-10 h-10 rounded-2xl bg-neutral-200 dark:bg-neutral-800 border-4 border-white dark:border-[#111111]" />)}
-                            </div>
-                            <button 
-                              onClick={() => {
-                                setFilterPin(exam.pin_sala);
-                                window.scrollTo({ top: 0, behavior: 'smooth' });
-                              }}
-                              className={cn("px-6 py-2 rounded-2xl text-[10px] font-black uppercase transition-all", 
-                                filterPin === exam.pin_sala ? "bg-blue-600 text-white shadow-lg" : "text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20")}
-                            >
-                              {filterPin === exam.pin_sala ? "Gestionando..." : "Gestionar Sala"}
-                            </button>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-
-        <div className="space-y-8">
-            <h3 className="text-sm font-black uppercase tracking-[0.3em] text-neutral-500">Alertas Recientes</h3>
-            <div className={cn("rounded-[40px] border overflow-hidden flex flex-col h-[600px]", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-xl")}>
-                <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                    {logs.map(log => {
-                        const critical = log.event_type?.includes('OBJETO') || log.event_type?.includes('sospechoso');
-                        return (
-                            <div key={log.id} className={cn("p-6 rounded-[28px] border-2 transition-all", critical ? "bg-red-500/10 border-red-500/20" : (darkMode ? "bg-white/5 border-white/5" : "bg-neutral-50 border-neutral-100"))}>
-                                <div className="flex items-center justify-between mb-4">
-                                    <span className={cn("text-[10px] font-black uppercase tracking-widest", critical ? "text-red-600" : "text-blue-600")}>{log.event_type?.replace('_', ' ')}</span>
-                                    <span className="text-[9px] font-bold text-neutral-400 uppercase">{new Date(log.created_at).toLocaleTimeString()}</span>
-                                </div>
-                                <h5 className="text-xs font-black mb-1 uppercase">{log.nombre_completo}</h5>
-                                <p className="text-[10px] text-neutral-500 font-medium leading-relaxed">{log.description}</p>
-                            </div>
-                        );
-                    })}
-                    {logs.length === 0 && (
-                        <div className="h-full flex flex-col items-center justify-center opacity-30 italic py-20">
-                            <Clock className="w-8 h-8 mb-2" />
-                            <span className="text-xs font-black uppercase tracking-widest">Sin registros</span>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function KpiCard({ title, value, icon, dark, color }) {
-  const colors = {
-    red: "from-red-600/20 to-transparent",
-    yellow: "from-yellow-600/20 to-transparent",
-    blue: "from-blue-600/20 to-transparent",
-    purple: "from-purple-600/20 to-transparent"
-  };
-  return (
-    <div className={cn("p-10 rounded-[48px] border shadow-xl relative overflow-hidden transition-all hover:scale-[1.05] hover:shadow-2xl", dark ? "bg-[#111111] border-white/10" : "bg-white border-neutral-100")}>
-      <div className={cn("absolute inset-0 bg-gradient-to-br opacity-20", colors[color])} />
-      <div className="relative z-10 flex items-center justify-between mb-8">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500">{title}</span>
-        <div className={cn("p-4 rounded-3xl", dark ? "bg-white/5" : "bg-neutral-50 shadow-inner")}>{icon}</div>
-      </div>
-      <div className="relative z-10 text-5xl font-black tracking-tighter">{value}</div>
     </div>
   );
 }
@@ -480,3 +226,160 @@ function SidebarItem({ icon, label, active, onClick, dark }) {
     </button>
   );
 }
+
+// ── PANTALLA DE BLOQUEO PARA DISPOSITIVOS MÓVILES ────────────────────────────
+// Componente independiente para que App() no incluya su JSX en el bundle crítico.
+function MobileBlockScreen() {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #0a0a0a 0%, #0f0f1a 50%, #0a0a0a 100%)',
+        padding: '24px',
+        fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+      }}
+    >
+      {/* Glow de fondo decorativo */}
+      <div style={{
+        position: 'fixed', inset: 0, pointerEvents: 'none',
+        background: 'radial-gradient(ellipse 60% 40% at 50% 50%, rgba(239,68,68,0.08) 0%, transparent 70%)',
+      }} />
+
+      <div style={{
+        width: '100%',
+        maxWidth: '420px',
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid rgba(239,68,68,0.25)',
+        borderRadius: '28px',
+        padding: '48px 36px',
+        textAlign: 'center',
+        backdropFilter: 'blur(16px)',
+        boxShadow: '0 0 60px rgba(239,68,68,0.08), 0 32px 64px rgba(0,0,0,0.5)',
+        position: 'relative',
+      }}>
+
+        {/* Ícono principal */}
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '80px',
+          height: '80px',
+          borderRadius: '24px',
+          background: 'linear-gradient(135deg, rgba(239,68,68,0.2), rgba(239,68,68,0.05))',
+          border: '1px solid rgba(239,68,68,0.3)',
+          marginBottom: '28px',
+          boxShadow: '0 0 40px rgba(239,68,68,0.15)',
+        }}>
+          <MonitorSmartphone size={38} color="#f87171" strokeWidth={1.5} />
+        </div>
+
+        {/* Badge de estado */}
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '8px',
+          background: 'rgba(239,68,68,0.12)',
+          border: '1px solid rgba(239,68,68,0.3)',
+          borderRadius: '100px',
+          padding: '6px 16px',
+          marginBottom: '20px',
+        }}>
+          <div style={{
+            width: '7px', height: '7px', borderRadius: '50%',
+            background: '#ef4444',
+            boxShadow: '0 0 8px #ef4444',
+            animation: 'pulse 2s infinite',
+          }} />
+          <span style={{ color: '#f87171', fontSize: '11px', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            Acceso Denegado
+          </span>
+        </div>
+
+        {/* Título */}
+        <h1 style={{
+          color: '#ffffff',
+          fontSize: '22px',
+          fontWeight: 900,
+          letterSpacing: '-0.02em',
+          lineHeight: 1.2,
+          marginBottom: '12px',
+        }}>
+          Dispositivo no compatible
+        </h1>
+
+        {/* Mensaje principal */}
+        <p style={{
+          color: 'rgba(255,255,255,0.5)',
+          fontSize: '14px',
+          lineHeight: 1.6,
+          marginBottom: '32px',
+        }}>
+          El sistema de supervisión biométrica <strong style={{ color: 'rgba(255,255,255,0.75)' }}>Centinela IA</strong> requiere acceso desde una computadora de escritorio o laptop con cámara web.
+        </p>
+
+        {/* Separador */}
+        <div style={{
+          height: '1px',
+          background: 'linear-gradient(to right, transparent, rgba(255,255,255,0.08), transparent)',
+          marginBottom: '28px',
+        }} />
+
+        {/* Requisito visual */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px',
+          padding: '16px 20px',
+          textAlign: 'left',
+        }}>
+          <div style={{
+            width: '44px', height: '44px', borderRadius: '14px', flexShrink: 0,
+            background: 'rgba(59,130,246,0.15)',
+            border: '1px solid rgba(59,130,246,0.25)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Laptop size={22} color="#60a5fa" strokeWidth={1.5} />
+          </div>
+          <div>
+            <p style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>
+              Usa tu computadora
+            </p>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', lineHeight: 1.4 }}>
+              Abre esta misma URL en Chrome o Firefox desde tu laptop o PC de escritorio.
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <p style={{
+          color: 'rgba(255,255,255,0.2)',
+          fontSize: '11px',
+          marginTop: '28px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '6px',
+        }}>
+          <ShieldAlert size={12} />
+          Procesamiento biométrico local · Sin almacenamiento de imágenes
+        </p>
+      </div>
+
+      {/* Keyframe para el punto pulsante — inyectado inline */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0.3; }
+        }
+      `}</style>
+    </div>
+  );
+}
+

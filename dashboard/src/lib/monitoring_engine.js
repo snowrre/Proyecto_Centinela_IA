@@ -22,6 +22,10 @@ export class CentinelaEngine {
         this.analyser = null;
         this.microphone = null;
         this.audioDataArray = null;
+
+        // Debounce de ruido: contador de frames consecutivos con ruido alto
+        this.noiseFramesCount = 0;
+        this.animationFrameId = null; // A-1 Fix: ref cancelable del bucle de inferencia
     }
 
     async init(stream = null) {
@@ -99,7 +103,7 @@ export class CentinelaEngine {
                 }
             }
             
-            requestAnimationFrame(process);
+            this.animationFrameId = requestAnimationFrame(process); // A-1 Fix: guardar ID
         };
         process();
     }
@@ -107,42 +111,80 @@ export class CentinelaEngine {
     checkAudio() {
         if (!this.analyser) return;
         this.analyser.getByteFrequencyData(this.audioDataArray);
+
         let sum = 0;
-        for (let i = 0; i < this.audioDataArray.length; i++) {
+        let validBins = 0;
+
+        // FILTRO DE FRECUENCIAS: Ignoramos los primeros 5 bins (sub-graves: ventiladores,
+        // vibración de hardware) y los últimos 10 (agudos extremos, fuera del rango vocal).
+        // Solo analizamos el rango aproximado de la voz humana (250 Hz – 4 kHz).
+        for (let i = 5; i < this.audioDataArray.length - 10; i++) {
             sum += this.audioDataArray[i];
+            validBins++;
         }
-        const average = sum / this.audioDataArray.length;
-        
-        if (average > 40) { // Umbral de ruido
-            this.handleViolation("RUIDO_DETECTADO", "Se detectó actividad sonora sospechosa", 5);
+
+        const average = sum / validBins;
+
+        // UMBRAL (70/255 ≈ 27%) + DEBOUNCE de 60 frames (~1s a 60fps)
+        // Requiere ruido sostenido antes de disparar — teclazos y estornudos no acumulan.
+        if (average > 70) {
+            this.noiseFramesCount++;
+
+            if (this.noiseFramesCount >= 60) {
+                this.handleViolation("RUIDO_DETECTADO", "Se detectó voz o ruido continuo", 2);
+                this.noiseFramesCount = 0; // Reiniciar para no hacer spam de alertas
+            }
+        } else {
+            // Enfriamiento rápido: silencio descuenta 2 frames por ciclo.
+            // Evita que golpes aislados se acumulen hasta el umbral.
+            this.noiseFramesCount = Math.max(0, this.noiseFramesCount - 2);
         }
     }
 
     stop() {
         this.isRunning = false;
+        cancelAnimationFrame(this.animationFrameId); // A-1 Fix: cancelar frame pendiente
+        this.animationFrameId = null;
         if (this.audioContext) this.audioContext.close();
     }
 
     onFaceResults(results) {
         if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-            this.handleViolation("AUSENCIA_ROSTRO", "No se detecta rostro frente a la cámara", 10);
+            this.handleViolation("AUSENCIA_ROSTRO", "No se detecta rostro frente a la cámara", 5);
+            // Resetear streak de múltiples caras si no hay ninguna cara
+            this.multiFaceStreak = 0;
             return;
         }
 
+        // ── Debounce de Múltiples Caras (Anti-FP audífonos) ──────────────────
+        // Un audífono/brazo genera detecciones esporádicas (1-5 frames).
+        // Una segunda persona real mantiene la detección por 20+ frames consecutivos.
+        // Solo disparamos la alerta si se supera el umbral de frames continuos.
+        const MULTI_FACE_FRAMES_REQUIRED = 20;
         if (results.multiFaceLandmarks.length > 1) {
-            this.handleViolation("MULTIPLE_PERSONA", "Se detectan múltiples personas", 20);
+            this.multiFaceStreak = (this.multiFaceStreak || 0) + 1;
+            if (this.multiFaceStreak >= MULTI_FACE_FRAMES_REQUIRED) {
+                this.handleViolation("MULTIPLE_PERSONA", "Se detectan múltiples personas", 10);
+            }
+            // Si está en período de gracia (streak < 20), no hacemos nada
+        } else {
+            // Volvió a 1 cara → resetear el contador
+            this.multiFaceStreak = 0;
         }
+        // ─────────────────────────────────────────────────────────────────────
 
         const landmarks = results.multiFaceLandmarks[0];
+        if (!landmarks || !landmarks[1] || !landmarks[234] || !landmarks[454]) return;
+
         const nose = landmarks[1];
         const leftSide = landmarks[234];
         const rightSide = landmarks[454];
         const horizontalRatio = (nose.x - leftSide.x) / (rightSide.x - leftSide.x);
         
         if (horizontalRatio < 0.32) {
-            this.handleViolation("MIRADA_LATERAL", "Mirando hacia la izquierda", 4);
+            this.handleViolation("MIRADA_LATERAL", "Mirando hacia la izquierda", 2);
         } else if (horizontalRatio > 0.68) {
-            this.handleViolation("MIRADA_LATERAL", "Mirando hacia la derecha", 4);
+            this.handleViolation("MIRADA_LATERAL", "Mirando hacia la derecha", 2);
         }
     }
 
@@ -152,9 +194,9 @@ export class CentinelaEngine {
         
         suspicious.forEach(p => {
             if (p.class === 'cell phone') {
-                this.handleViolation("OBJETO_PROHIBIDO", "Teléfono detectado", 30);
+                this.handleViolation("OBJETO_PROHIBIDO", "Teléfono detectado", 15);
             } else if (p.class === 'book') {
-                this.handleViolation("OBJETO_PROHIBIDO", "Libro detectado", 15);
+                this.handleViolation("OBJETO_PROHIBIDO", "Libro detectado", 7);
             }
             // Audífonos no están en COCO-SSD por defecto, 
             // pero podemos alertar si hay objetos desconocidos cerca de la cabeza? 
@@ -176,17 +218,17 @@ export class CentinelaEngine {
         const isGracePeriod = (now - this.violationStartTime) < 1500;
         
         if (!isGracePeriod) {
-            // Penalización Suave: Superado el periodo de gracia, sumamos poco a poco (+2%)
-            this.suspicionScore = Math.min(100, this.suspicionScore + 2);
+            // Penalización Suave: Superado el periodo de gracia, sumamos poco a poco (+1%)
+            this.suspicionScore = Math.min(100, this.suspicionScore + 1);
         } else {
             // Durante el periodo de gracia, permitimos movimientos naturales (penalización casi nula)
-            this.suspicionScore = Math.min(100, this.suspicionScore + 0.2);
+            this.suspicionScore = Math.min(100, this.suspicionScore + 0.1);
         }
 
         this.callbacks.onStatus?.({ suspicionScore: Math.round(this.suspicionScore) });
 
-        // Suavizado de Alertas: Solo enviamos a la BD si la sospecha cruzó el 80% (o es gravísimo)
-        if (this.suspicionScore >= 80 && (now - this.lastAlertTime > 5000)) { 
+        // Suavizado de Alertas: Solo enviamos a la BD si la sospecha cruzó el 85% (o es gravísimo)
+        if (this.suspicionScore >= 85 && (now - this.lastAlertTime > 5000)) { 
             this.lastAlertTime = now;
             this.callbacks.onAlert({ type, message: msg, timestamp: now });
         }

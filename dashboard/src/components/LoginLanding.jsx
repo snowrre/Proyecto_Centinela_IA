@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { ShieldCheck, ArrowRight, Mail, Lock, User, GraduationCap, ChevronLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
+import Swal from 'sweetalert2';
 
 export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
   const [view, setView] = useState('selection'); // selection, teacher_login, student_login
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -20,34 +23,105 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
     // --- MODO SALVAVIDAS (DEMO) ---
     // Si el internet de la escuela falla o bloquea Supabase, este usuario siempre entrará
     if (email === 'admin@utc.edu.mx' && password === 'tesis2026') {
-      alert("Entrando en Modo Administrador (Bypass local)");
+      toast("Entrando en Modo Administrador (Bypass local)", { icon: '🛡️' });
       setLoading(false);
       if (onLoginTeacher) onLoginTeacher({ id: 'admin-bypass', email: 'admin@utc.edu.mx' });
       return;
     }
 
     try {
-      if (isRegistering) {
-        const { data, error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
-        alert("¡Registro exitoso! Ya puedes iniciar sesión.");
-        setIsRegistering(false); 
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        
-        // Validamos si es docente usando la función o el estado actual
-        const esDocente = (typeof isTeacherEmail === 'function' && isTeacherEmail(email)) || view === 'teacher_login';
+      const esDocente = view === 'teacher_login';
 
-        if (esDocente) {
-          // Redirige al panel del docente
-          if (onLoginTeacher) onLoginTeacher(data.user); 
+      if (esDocente) {
+        if (isRegistering) {
+          const { data, error } = await supabase.auth.signUp({ email, password });
+          if (error) throw error;
+          toast.success("Registro exitoso. Bienvenido a Centinela IA");
+          setIsRegistering(false); 
         } else {
-          // Redirige a la vista de la cámara del alumno pasando la matrícula y el PIN
+          const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+          if (onLoginTeacher) onLoginTeacher(data.user); 
+        }
+      } else {
+        // Lógica de Alumno
+        if (isRegistering) {
+          if (!name.trim()) throw new Error('El Nombre Completo es obligatorio.');
+          const { error } = await supabase.from('alumnos').insert([{
+            nombre_completo: name,
+            correo: email,
+            matricula: password
+          }]);
+          if (error) {
+            if (error.code === '23505') throw new Error('La matrícula o correo ya están registrados.');
+            throw new Error(error.message);
+          }
+          
+          localStorage.setItem('centinela_user', JSON.stringify({
+            nombre: name,
+            correo: email,
+            matricula: password
+          }));
+
+          toast.success("Registro exitoso. Bienvenido a Centinela IA");
+          setIsRegistering(false);
+        } else {
+          // 1. Validar en Supabase si el alumno tiene un registro de expulsión activo
+          const { data: expulsionRecord, error: checkError } = await supabase
+            .from('commands')
+            .select('id')
+            .eq('matricula', password) 
+            .eq('command', 'EXPULSAR');
+
+          if (checkError) {
+            console.error("Error al verificar estado del alumno:", checkError);
+            throw new Error("No se pudo verificar el estado del alumno. Intenta de nuevo.");
+          }
+
+          // 2. Si la base de datos devuelve un registro de expulsión, aplicar el portazo
+          if (expulsionRecord && expulsionRecord.length > 0) {
+            Swal.fire({
+              title: 'Acceso Denegado',
+              text: 'Tu examen ha sido cancelado por el docente y no puedes reingresar.',
+              icon: 'error',
+              confirmButtonColor: '#991b1b',
+              confirmButtonText: 'Entendido'
+            });
+            
+            // Abortar la función para que no avance a la siguiente pantalla
+            return; 
+          }
+
+          const { data: alumnoData, error: alumnoError } = await supabase.from('alumnos')
+            .select('*')
+            .eq('matricula', password)
+            .maybeSingle();
+            
+          if (alumnoError || !alumnoData) {
+            throw new Error('Matrícula no encontrada. Por favor, regístrate primero.');
+          }
+          
+          if (alumnoData.correo !== email) {
+            throw new Error('El correo no coincide con la matrícula ingresada.');
+          }
+
+          // Registrar sesión en exam_sessions
+          const { error: sessionError } = await supabase.from('exam_sessions').insert([{
+            pin_sala: roomCode,
+            student_name: alumnoData.nombre_completo,
+            matricula_alumno: alumnoData.matricula
+          }]);
+          
+          if (sessionError) {
+            console.error("No se pudo registrar en exam_sessions:", sessionError);
+            // Opcional: throw new Error("No se pudo registrar la sesión.");
+          }
+
           if (onLoginStudent) {
             onLoginStudent({ 
-              ...data.user,
-              matricula: password, 
+              email: alumnoData.correo,
+              matricula: alumnoData.matricula,
+              nombre_completo: alumnoData.nombre_completo,
               roomCode: roomCode
             });
           }
@@ -120,22 +194,22 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
           {(view === 'teacher_login' || view === 'student_login') && (
             <div className="bg-white p-8 rounded-2xl border border-neutral-200 shadow-sm">
               <button 
-                onClick={() => setView('selection')}
+                onClick={() => { setView('selection'); setIsRegistering(false); setError(null); }}
                 className="flex items-center gap-2 text-xs font-medium text-neutral-500 hover:text-black mb-6 transition-colors"
               >
                 <ChevronLeft className="w-3 h-3" />
                 Volver
               </button>
 
-              <h2 className="text-lg font-bold mb-1">
+              <h2 className="text-lg font-bold mb-1 transition-all">
                 {view === 'teacher_login' 
                   ? (isRegistering ? 'Crear Cuenta Docente' : 'Bienvenido, Docente') 
-                  : 'Acceso a Examen'}
+                  : (isRegistering ? 'Registro de Alumno' : 'Acceso a Examen')}
               </h2>
-              <p className="text-xs text-neutral-500 mb-8">
+              <p className="text-xs text-neutral-500 mb-8 transition-all">
                 {view === 'teacher_login' 
                   ? (isRegistering ? 'Regístrate para gestionar tus evaluaciones.' : 'Introduce tus credenciales para continuar.') 
-                  : 'Ingresa tus datos para comenzar la evaluación.'}
+                  : (isRegistering ? 'Crea tu cuenta para poder presentar evaluaciones.' : 'Ingresa tus datos para comenzar la evaluación.')}
               </p>
 
               {error && (
@@ -145,6 +219,23 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
               )}
 
               <form onSubmit={handleLogin} className="space-y-4">
+                {view === 'student_login' && isRegistering && (
+                  <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">Nombre Completo</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                      <input 
+                        type="text" 
+                        required={isRegistering && view === 'student_login'}
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all"
+                        placeholder="Ej. Juan Pérez"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">Correo Institucional</label>
                   <div className="relative">
@@ -177,12 +268,12 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                   </div>
                 </div>
 
-                {view === 'student_login' && (
-                  <div className="space-y-1">
+                {view === 'student_login' && !isRegistering && (
+                  <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">
                     <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest px-1">PIN de Sala</label>
                     <input 
                       type="text" 
-                      required
+                      required={!isRegistering && view === 'student_login'}
                       value={roomCode}
                       onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
                       className="w-full px-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm font-black tracking-widest focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all"
@@ -198,19 +289,19 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                 >
                   {loading 
                     ? 'Validando...' 
-                    : (view === 'teacher_login' 
-                        ? (isRegistering ? 'Crear Cuenta' : 'Entrar al Panel Docente') 
-                        : 'Entrar al Examen')}
+                    : (isRegistering 
+                        ? 'Registrarse' 
+                        : (view === 'teacher_login' ? 'Entrar al Panel Docente' : 'Entrar al Examen'))}
                 </button>
 
-                {view === 'teacher_login' && (
-                  <div className="mt-4 text-center">
+                {(view === 'teacher_login' || view === 'student_login') && (
+                  <div className="mt-4 text-center animate-in fade-in duration-500">
                     <button 
                       type="button" 
                       onClick={() => setIsRegistering(!isRegistering)}
-                      className="text-xs text-blue-600 hover:underline font-bold"
+                      className="text-xs text-blue-600 hover:underline font-bold transition-all"
                     >
-                      {isRegistering ? '¿Ya tienes cuenta? Inicia sesión aquí' : '¿No tienes cuenta? Regístrate aquí'}
+                      {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate'}
                     </button>
                   </div>
                 )}

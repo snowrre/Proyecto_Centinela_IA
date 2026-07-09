@@ -390,13 +390,34 @@ class ProctorVision:
             yolo_results = yolo_results_list[0]
             cell_phone_detected = False; book_detected = False; person_count = 0; yolo_boxes = []
             for box in yolo_results.boxes:
-                cls_id = int(box.cls[0].item()); conf = float(box.conf[0].item()); x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                if cls_id == 0 and conf > 0.40: 
-                    person_count += 1; name = "Person"
-                elif cls_id == 67 and conf > 0.45: cell_phone_detected = True; name = "Cell Phone"
-                elif cls_id == 73 and conf > 0.45: book_detected = True; name = "Book"
-                else: continue
-                yolo_boxes.append({"class": cls_id, "name": name, "conf": conf, "box": [x1, y1, x2, y2]})
+                cls_id     = int(box.cls[0].item())
+                conf       = float(box.conf[0].item())
+                # Nombre en texto desde el propio modelo (fuente de verdad)
+                class_name = self.yolo_model.names[cls_id].lower()
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+
+                # ── FILTRO ESTRICTO ANTI-FALSOS-POSITIVOS v3.0 ─────────────────
+                # Filtra por nombre en texto para evitar errores de ID numérico.
+                # Las manos vacías alcanzan ~0.5–0.7 para 'cell phone';
+                # un celular real supera 0.85. Por debajo → ignorar completamente.
+                if class_name == 'cell phone' and conf < 0.85:
+                    continue
+                # ───────────────────────────────────────────────────────────────
+
+                # ── Anti-FP Múltiples Personas v1.0: umbral 0.40→0.75 ──────────
+                # A 0.40 un brazo/audífono dispara segunda persona; a 0.75 solo
+                # cuenta si YOLO está muy seguro de que es una persona completa.
+                if class_name == 'person' and conf > 0.75:
+                    person_count += 1
+                elif class_name == 'cell phone' and conf >= 0.85:
+                    cell_phone_detected = True
+                elif class_name == 'book' and conf > 0.45:
+                    book_detected = True
+                else:
+                    continue
+                # 'class' se emite como string para que el frontend pueda
+                # comparar directamente: d.class === 'cell phone'
+                yolo_boxes.append({"class": class_name, "name": class_name, "conf": conf, "box": [x1, y1, x2, y2]})
             objects = ObjectResult(cell_phone_detected, book_detected, person_count, yolo_boxes, yolo_results)
             self._last_objects = objects
 
