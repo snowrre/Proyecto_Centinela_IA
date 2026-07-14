@@ -11,8 +11,8 @@ import stripe
 load_dotenv()
 
 app = Flask(__name__)
-# Esto permite que Vercel entre y que acepte los headers especiales
-CORS(app, resources={r"/api/*": {"origins": "https://centinela-ia-frontend.vercel.app"}}, supports_credentials=True)
+# Esto le dice a Python que acepte el tráfico de cualquier dominio
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Reemplaza con tu clave secreta de prueba real de Stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "sk_test_123456789")
