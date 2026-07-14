@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from logic import ProctorVision
 from dotenv import load_dotenv
-import stripe
+import mercadopago
 
 load_dotenv()
 
@@ -14,8 +14,8 @@ app = Flask(__name__)
 # Esto le dice a Python que acepte el tráfico de cualquier dominio
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Reemplaza con tu clave secreta de prueba real de Stripe
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "sk_test_123456789")
+# Inicializa Mercado Pago con tu Access Token de Producción
+sdk = mercadopago.SDK("APP_USR-2799377136698972-071400-bc05d85d92beca01572b91e15db1703c-1986408007")
 
 # ── Motor de inferencia YOLO ──────────────────────────────────────────────────
 proctor = ProctorVision()
@@ -162,106 +162,31 @@ def grade_exam():
         print(f"[grade] Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/create-checkout-session', methods=['POST'])
-def create_checkout_session():
-    try:
-        data = request.json
-        plan_type = data.get('plan', 'departamental')
-        # Capturamos el ID del cliente (enviado desde React al iniciar la compra)
-        client_id = data.get('clientId')
-
-        # Definir los datos del producto y precio según el botón presionado
-        if plan_type == 'campus':
-            price_data = {
-                'currency': 'mxn',
-                'product_data': {
-                    'name': 'Licencia Campus - Centinela IA',
-                    'description': 'Alumnos ilimitados, métricas avanzadas y soporte prioritario institucionales.',
-                },
-                'unit_amount': 3999900,  # $39,999.00 MXN en centavos
+@app.route('/api/create-preference', methods=['POST', 'OPTIONS'])
+def create_preference():
+    # Aquí definimos lo que vas a cobrar
+    preference_data = {
+        "items": [
+            {
+                "title": "Licencia Campus - Centinela IA",
+                "quantity": 1,
+                "unit_price": 39999.00,
+                "currency_id": "MXN"
             }
-        else:
-            price_data = {
-                'currency': 'mxn',
-                'product_data': {
-                    'name': 'Licencia Departamental - Centinela IA',
-                    'description': 'Hasta 500 alumnos simultáneos y reportes estándar.',
-                },
-                'unit_amount': 1499900,   # $14,999.00 MXN en centavos
-            }
+        ],
+        "back_urls": {
+            "success": "https://centinela-ia-frontend.vercel.app/exito", # A donde volverá el usuario tras pagar
+            "failure": "https://centinela-ia-frontend.vercel.app/error",
+            "pending": "https://centinela-ia-frontend.vercel.app/pendiente"
+        },
+        "auto_return": "approved"
+    }
 
-        # Crear la sesión de checkout de Stripe
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            client_reference_id=client_id, # <- Vinculamos el ID aquí
-            line_items=[{
-                'price_data': price_data,
-                'quantity': 1,
-            }],
-            mode='payment',
-            # URL a la que regresa si el pago es exitoso
-            success_url='http://localhost:5173/dashboard?session_id={CHECKOUT_SESSION_ID}',
-            # URL a la que regresa si cancela o cierra la pestaña de pago
-            cancel_url='http://localhost:5173/',
-        )
-
-        return jsonify({'url': checkout_session.url})
-
-    except Exception as e:
-        return jsonify(error=str(e)), 403
-
-
-# El secreto del webhook de Stripe para pruebas locales (lo obtendrás de Stripe CLI)
-ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_...")
-
-@app.route('/api/webhook', methods=['POST'])
-def stripe_webhook():
-    payload = request.data
-    sig_header = request.headers.get('Stripe-Signature')
-    event = None
-
-    try:
-        # Verificar la autenticidad del evento usando la firma de Stripe
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, ENDPOINT_SECRET
-        )
-    except ValueError as e:
-        # Payload inválido
-        return 'Invalid payload', 400
-    except stripe.error.SignatureVerificationError as e:
-        # Firma inválida
-        return 'Invalid signature', 400
-
-    # Manejar el evento específico de checkout completado
-    if event.type == 'checkout.session.completed':
-        session = event.data.object
-        
-        # Extraemos la información que guardamos previamente
-        client_id = getattr(session, 'client_reference_id', None)
-        # Nota: Ajustamos el monto para que coincida con los precios configurados en Centinela
-        plan_pagado = "campus" if getattr(session, 'amount_total', 0) == 3999900 else "departamental"
-        
-        if client_id:
-            try:
-                if supabase_admin is None:
-                    print("❌ Error: supabase_admin no está configurado.")
-                    return 'Database not configured', 500
-
-                # Actualizar el estado de la licencia en la tabla 'universidades'
-                resultado = supabase_admin.table('universidades').upsert({
-                    'id': client_id,
-                    'nombre_institucion': 'Universidad (Stripe)',
-                    'licencia_activa': True,
-                    'plan_contratado': plan_pagado,
-                    'stripe_customer_id': getattr(session, 'customer', None)
-                }).execute()
-                
-                print(f"✅ Licencia activada con éxito para el cliente {client_id}")
-            except Exception as supabase_error:
-                print(f"❌ Error al actualizar Supabase: {str(supabase_error)}")
-                return 'Database update failed', 500
-
-    return jsonify(success=True), 200
+    preference_response = sdk.preference().create(preference_data)
+    preference = preference_response["response"]
+    
+    # Devolvemos el link de cobro a React
+    return jsonify({"init_point": preference["init_point"]})
 
 if __name__ == '__main__':
     print("Iniciando Centinela Backend Server en el puerto 5000...")
