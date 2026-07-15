@@ -232,11 +232,16 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     
     try {
+      // 0. IDENTIFICAR AL PROFESOR ACTUAL
+      const { data: { user } } = await supabase.auth.getUser();
+      const idProfesorActual = user ? user.id : 'admin-bypass'; // Fallback para modo demo
+
       // 1. Guardar el examen en el nuevo esquema híbrido
       const datosDelExamen = {
         titulo: examTitle,
         tipo: 'nativo',
-        pin_sala: generatedPin
+        pin_sala: generatedPin,
+        id_profesor: idProfesorActual // ✅ Enlace maestro establecido
       };
 
       const { data: examData, error: examError } = await supabase
@@ -287,11 +292,16 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     
     try {
+      // 0. IDENTIFICAR AL PROFESOR ACTUAL
+      const { data: { user } } = await supabase.auth.getUser();
+      const idProfesorActual = user ? user.id : 'admin-bypass'; // Fallback para modo demo
+
       const datosDelExamen = {
         titulo: examTitle,
         tipo: 'externo',
         pin_sala: generatedPin,
-        url_formulario: externalLink.trim()
+        url_formulario: externalLink.trim(),
+        id_profesor: idProfesorActual // ✅ Enlace maestro establecido
       };
 
       const { error } = await supabase
