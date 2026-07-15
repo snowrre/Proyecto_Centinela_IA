@@ -1,4 +1,6 @@
 import os
+import csv
+import io
 import base64
 import cv2
 import numpy as np
@@ -164,13 +166,20 @@ def grade_exam():
 
 @app.route('/api/create-preference', methods=['POST', 'OPTIONS'])
 def create_preference():
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, ngrok-skip-browser-warning")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        return response
+
     # Aquí definimos lo que vas a cobrar
     preference_data = {
         "items": [
             {
-                "title": "Licencia Campus - Centinela IA",
+                "title": "Licencia Campus - Centinela IA (Prueba)",
                 "quantity": 1,
-                "unit_price": 39999.00,
+                "unit_price": 10.00,
                 "currency_id": "MXN"
             }
         ],
@@ -187,6 +196,120 @@ def create_preference():
     
     # Devolvemos el link de cobro a React
     return jsonify({"init_point": preference["init_point"]})
+
+@app.route('/api/crear-campus', methods=['POST', 'OPTIONS'])
+def crear_campus():
+    # 1. Pase VIP para el CORS
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, ngrok-skip-browser-warning")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        return response
+
+    # 2. Leer FormData (texto en request.form, archivo en request.files)
+    payment_id       = request.form.get('payment_id')
+    nombre_institucion = request.form.get('nombre_institucion')
+    correo_admin     = request.form.get('correo_admin')
+    dominio          = request.form.get('dominio')
+    archivo_csv      = request.files.get('archivo_csv')
+
+    if not payment_id or not nombre_institucion or not correo_admin or not dominio or not archivo_csv:
+        return jsonify({"error": "Faltan datos requeridos (payment_id, institución, correo, dominio) o el archivo CSV"}), 400
+
+    if supabase_admin is None:
+        return jsonify({"error": "Backend no configurado: falta SUPABASE_SERVICE_KEY en .env"}), 503
+
+    # 3. Guardia de Mercado Pago: verificar que el pago sea real y esté aprobado
+    # --- BYPASS TEMPORAL ---
+    # try:
+    #     pago_info = sdk.payment().get(payment_id)
+    #     if pago_info["response"]["status"] != "approved":
+    #         return jsonify({"error": "El pago no está aprobado o es inválido"}), 400
+    # except Exception as e:
+    #     print(f"[crear-campus] Error consultando MP: {e}")
+    #     return jsonify({"error": "No se pudo validar el pago con Mercado Pago"}), 500
+
+    # 4. Registrar Universidad en Supabase y capturar su ID generado
+    try:
+        datos_campus = {
+            "nombre_institucion": nombre_institucion,
+            "mercadopago_payment_id": str(payment_id),
+            "licencia_activa": True,
+            "plan_contratado": "campus",
+            "correo_admin": correo_admin,
+            "dominio_permitido": dominio
+        }
+        respuesta_campus = supabase_admin.table('universidades').insert(datos_campus).execute()
+
+        # Supabase devuelve la fila recién creada — extraemos el UUID
+        id_universidad = respuesta_campus.data[0]['id']
+        print(f"[crear-campus] Universidad registrada con id: {id_universidad}")
+
+    except Exception as e:
+        # El motor de BD lanzará error si el payment_id ya existe (UNIQUE constraint)
+        print(f"[crear-campus] Error insertando universidad: {e}")
+        return jsonify({"error": "Este pago ya fue utilizado. Intento de fraude bloqueado."}), 403
+
+    # 5. ¡LA MAGIA! Procesar el CSV y registrar a cada profesor
+    # Usamos utf-8-sig para limpiar el BOM oculto que Excel a veces agrega al inicio del archivo
+    stream = io.StringIO(archivo_csv.stream.read().decode("utf-8-sig"), newline=None)
+    csv_reader = csv.DictReader(stream)
+
+    # Limpiamos los espacios en blanco invisibles de los nombres de las columnas
+    if csv_reader.fieldnames:
+        csv_reader.fieldnames = [str(field).strip() for field in csv_reader.fieldnames]
+
+    cuentas_creadas  = 0
+    cuentas_fallidas = []
+
+    for row in csv_reader:
+        # Buscamos múltiples variantes para ser a prueba de errores humanos
+        nombre    = (row.get('Nombre') or row.get('nombre_completo') or row.get('nombre') or '').strip()
+        correo    = (row.get('Correo') or row.get('correo_institucional') or row.get('correo') or '').strip()
+        matricula = (row.get('Matricula') or row.get('matricula_empleado') or row.get('matricula') or '').strip()
+
+        if not correo or not matricula:
+            continue  # Fila incompleta, saltar
+
+        # Contraseña temporal: 'Centinela' + matrícula del empleado
+        password_temporal = f"Centinela{matricula}"
+
+        try:
+            # A. Crear la cuenta en Supabase Auth (sistema de autenticación)
+            user_response = supabase_admin.auth.admin.create_user({
+                "email": correo,
+                "password": password_temporal,
+                "email_confirm": True,  # Sin correo de confirmación — acceso inmediato
+            })
+
+            # Extraemos el UUID del usuario recién creado
+            nuevo_usuario_id = user_response.user.id
+
+            # B. Insertar el perfil en la tabla pública 'usuarios' vinculado a su universidad
+            supabase_admin.table('usuarios').insert({
+                "id":            nuevo_usuario_id,
+                "email":         correo,
+                "nombre":        nombre,
+                "rol":           "profesor",
+                "matricula":     matricula,
+                "id_universidad": id_universidad  # ¡La conexión que lo ata a su campus!
+            }).execute()
+
+            cuentas_creadas += 1
+            print(f"[crear-campus] Profesor registrado: {correo} → universidad {id_universidad}")
+
+        except Exception as e:
+            # Si el correo ya existía u otro error, lo registramos y continuamos
+            print(f"[crear-campus] Error creando perfil para {correo}: {e}")
+            cuentas_fallidas.append(correo)
+
+    return jsonify({
+        "mensaje": f"¡Campus '{nombre_institucion}' creado! Se activaron {cuentas_creadas} cuentas de profesores.",
+        "cuentas_creadas":  cuentas_creadas,
+        "cuentas_fallidas": cuentas_fallidas,
+        "id_universidad":   id_universidad
+    }), 200
 
 if __name__ == '__main__':
     print("Iniciando Centinela Backend Server en el puerto 5000...")

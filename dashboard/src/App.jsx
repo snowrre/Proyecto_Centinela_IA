@@ -16,6 +16,7 @@ import StudentPortal from './components/StudentPortal';
 import AdminDashboard from './components/AdminDashboard';
 import BiometricAuth from './components/BiometricAuth';
 import ProcesarPago from './components/ProcesarPago';
+import RegistroCampus from './components/RegistroCampus';
 import { useBiometric } from './context/BiometricContext';
 import { Toaster } from 'react-hot-toast';
 import { useDeviceRestriction } from './hooks/useDeviceRestriction';
@@ -26,6 +27,9 @@ function cn(...inputs) {
 
 export default function App() {
   const [view, setView] = useState(() => {
+    if (window.location.pathname === '/exito' || window.location.pathname === '/registro-campus') {
+      return 'exito';
+    }
     // Si venimos de Stripe (después del pago), mostramos el componente de procesamiento
     if (new URLSearchParams(window.location.search).get('session_id')) {
       return 'procesar_pago';
@@ -77,6 +81,10 @@ export default function App() {
 
   if (isMobile) {
     return <MobileBlockScreen />;
+  }
+
+  if (view === 'exito') {
+    return <RegistroCampus />;
   }
 
   if (view === 'marketing') {
@@ -382,4 +390,6 @@ function MobileBlockScreen() {
     </div>
   );
 }
+
+
 
