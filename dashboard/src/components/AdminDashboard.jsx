@@ -427,7 +427,7 @@ export default function AdminDashboard({ darkMode }) {
       const { data } = await supabase
         .from('telemetria_examenes')
         .select('*')
-        .order('created_at', { ascending: false })
+        .order('creado_en', { ascending: false })
         .limit(30);
       if (data) setAlertasBio(data);
     };
@@ -869,7 +869,7 @@ export default function AdminDashboard({ darkMode }) {
                         {cfg.label}
                       </h4>
                       <span className="text-[10px] font-mono text-neutral-500 bg-white dark:bg-white/10 px-2 py-0.5 rounded-lg shadow-sm border dark:border-white/10 shrink-0">
-                        {new Date(alerta.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        {new Date(alerta.creado_en).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">

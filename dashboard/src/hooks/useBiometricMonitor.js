@@ -156,7 +156,7 @@ export function useBiometricMonitor() {
       estudiante_id:   estudianteId,
       tipo_anomalia:   tipoAnomalia,
       nivel_confianza: parseFloat(nivelConfianza.toFixed(4)),
-      created_at:      new Date().toISOString(),
+      creado_en:       new Date().toISOString(),
     };
 
     try {
