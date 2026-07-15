@@ -40,11 +40,38 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
         // Lógica de Alumno
         if (isRegistering) {
           if (!name.trim()) throw new Error('El Nombre Completo es obligatorio.');
+          if (!email.includes('@')) throw new Error('Ingresa un correo válido.');
+          
+          // ==========================================
+          // 🛑 CANDADO DE DOMINIO (MULTI-TENANT)
+          // ==========================================
+          
+          // 1. Extraemos todo lo que está después del arroba y le volvemos a poner el '@'
+          const dominioIngresado = "@" + email.split('@')[1].toLowerCase();
+
+          // 2. Buscamos en Supabase si alguna universidad tiene ese dominio registrado
+          const { data: universidadValida, error: errorUni } = await supabase
+            .from('universidades')
+            .select('id, nombre_institucion')
+            .eq('dominio_permitido', dominioIngresado)
+            .single();
+
+          // 3. Si no encuentra nada, cerramos la puerta con llave
+          if (errorUni || !universidadValida) {
+            throw new Error(`Acceso denegado: El dominio ${dominioIngresado} no está registrado en Centinela IA.`);
+          }
+
+          // ==========================================
+          // ✅ SI PASA EL CANDADO, LO REGISTRAMOS
+          // ==========================================
+
           const { error } = await supabase.from('alumnos').insert([{
             nombre_completo: name,
             correo: email,
-            matricula: password
+            matricula: password,
+            id_universidad: universidadValida.id // ¡Crucial! Lo amarramos a su escuela
           }]);
+          
           if (error) {
             if (error.code === '23505') throw new Error('La matrícula o correo ya están registrados.');
             throw new Error(error.message);
@@ -53,10 +80,12 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
           localStorage.setItem('centinela_user', JSON.stringify({
             nombre: name,
             correo: email,
-            matricula: password
+            matricula: password,
+            id_universidad: universidadValida.id,
+            institucion: universidadValida.nombre_institucion
           }));
 
-          toast.success("Registro exitoso. Bienvenido a Centinela IA");
+          toast.success(`Registro exitoso. Bienvenido a ${universidadValida.nombre_institucion}`);
           setIsRegistering(false);
         } else {
           // 1. Validar en Supabase si el alumno tiene un registro de expulsión activo
