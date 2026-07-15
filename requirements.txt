@@ -79,7 +79,7 @@ opencv-contrib-python==4.11.0.86
 opencv-python==4.11.0.86
 opencv-python-headless==4.11.0.86
 packaging==26.2
-pandas==3.0.3
+pandas==2.2.2
 pillow==12.2.0
 polars==1.40.1
 polars-runtime-32==1.40.1
