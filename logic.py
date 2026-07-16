@@ -397,10 +397,8 @@ class ProctorVision:
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
 
                 # ── FILTRO ESTRICTO ANTI-FALSOS-POSITIVOS v3.0 ─────────────────
-                # Filtra por nombre en texto para evitar errores de ID numérico.
-                # Las manos vacías alcanzan ~0.5–0.7 para 'cell phone';
-                # un celular real supera 0.85. Por debajo → ignorar completamente.
-                if class_name == 'cell phone' and conf < 0.85:
+                # Bajamos la confianza a 0.45 porque las manos ocultan el dispositivo
+                if class_name == 'cell phone' and conf < 0.45:
                     continue
                 # ───────────────────────────────────────────────────────────────
 
@@ -409,7 +407,7 @@ class ProctorVision:
                 # cuenta si YOLO está muy seguro de que es una persona completa.
                 if class_name == 'person' and conf > 0.75:
                     person_count += 1
-                elif class_name == 'cell phone' and conf >= 0.85:
+                elif class_name == 'cell phone' and conf >= 0.45:
                     cell_phone_detected = True
                 elif class_name == 'book' and conf > 0.45:
                     book_detected = True
