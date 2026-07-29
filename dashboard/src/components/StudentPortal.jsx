@@ -168,7 +168,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
         .from('exams')
         .select('*')
         .eq('pin_sala', currentPin)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       
@@ -281,129 +281,8 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
   };
 
   // PASO 4: useEffect para revivir cámara y bucle YOLOv8
-  useEffect(() => {
-    let videoStream = null;
-
-    const startCameraAndInference = async () => {
-      try {
-        videoStream = streamRef.current;
-        if (videoRef.current && videoStream) {
-          videoRef.current.srcObject = videoStream;
-        }
-
-        // Bucle de Inferencia (YOLOv8) — PERF-02: 2500ms
-        inferenceIntervalRef.current = setInterval(() => {
-          // ── GUARD: detener si el alumno ya fue expulsado ──
-          if (isDeadRef.current) {
-            clearInterval(inferenceIntervalRef.current);
-            inferenceIntervalRef.current = null;
-            return;
-          }
-          try {
-            if (videoRef.current && canvasRef.current && videoRef.current.readyState === 4 && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
-              const context = canvasRef.current.getContext('2d');
-              canvasRef.current.width = videoRef.current.videoWidth;
-              canvasRef.current.height = videoRef.current.videoHeight;
-              context.drawImage(videoRef.current, 0, 0);
-
-              // PERF-02: Calidad 0.5 → ~50% menos de peso por frame
-              const frameBase64 = canvasRef.current.toDataURL('image/jpeg', 0.5);
-
-              // EDGE-04: AbortController con timeout de 5s
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-              const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-              fetch(`${backendUrl}/api/analyze-frame`, {
-                method: 'POST',
-                signal: controller.signal,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  image: frameBase64,
-                  user_pin: formData.pin || 'ACTUAL_PIN'
-                })
-              })
-              .then(res => res.json())
-              .then(async (data) => {
-                 // ── GUARD: abortar si fue expulsado mientras el fetch estaba en vuelo ──
-                 if (isDeadRef.current) return;
-
-                 const detections = data.detections || [];
-                 const highConfPersons = detections.filter(
-                   d => (d.class === 'person' || d.class === 'face') && (d.conf ?? d.confidence ?? 0) > 0.75
-                 );
-                 const faces = highConfPersons.length;
-                 const cellPhone = detections.find(d => d.class === 'cell phone');
-
-                 let alertType = null;
-                 let confidence = 0;
-
-                 if (cellPhone) {
-                    alertType = 'Celular detectado';
-                    confidence = cellPhone.conf ?? cellPhone.confidence ?? 0.99;
-                 } else if (faces > 1) {
-                    alertType = 'Múltiples rostros';
-                    const avgConf = highConfPersons.reduce((s, d) => s + (d.conf ?? d.confidence ?? 0), 0) / faces;
-                    confidence = avgConf;
-                 }
-
-                 if (alertType) {
-                    const now = Date.now();
-                    if (now - lastAlertTime.current >= 5000) {
-                       lastAlertTime.current = now;
-                       try {
-                           await supabase.from('camera_logs').insert([{
-                               pin_sala: formData.pin || studentData?.roomCode,
-                               event_type: alertType,
-                               description: `Severidad: ${Math.round(confidence * 100)}%`,
-                               matricula: formData.matricula || "Desconocida",
-                               nombre_completo: formData.matricula || "Estudiante",
-                               created_at: new Date().toISOString()
-                           }]);
-                       } catch (err) {
-                           console.error("Alerta fallida:", err);
-                       }
-                    }
-                 }
-              })
-              .catch((err) => {
-                 if (err.name === 'AbortError') return;
-                 if (err.message === 'Failed to fetch' || String(err).includes('NetworkError') || String(err).includes('ERR_CONNECTION_REFUSED') || String(err).includes('fetch')) {
-                     backendFailCountRef.current += 1;
-                     console.warn(`[Centinela] Backend no responde (intento ${backendFailCountRef.current}/3)`);
-                     // Solo mostrar error crítico tras 3 fallos consecutivos
-                     if (backendFailCountRef.current >= 3) {
-                         setServerError(true);
-                     }
-                 }
-              })
-              .then(() => {
-                 // Reset del contador si el fetch anterior fue exitoso
-                 backendFailCountRef.current = 0;
-              })
-              .finally(() => clearTimeout(timeoutId));
-            }
-          } catch (e) {
-            // Ignorar errores locales de rendering
-          }
-        }, 2500);
-
-      } catch (err) {
-        console.error("Error al acceder a la cámara:", err);
-      }
-    };
-
-    if (step === 'active') {
-      startCameraAndInference();
-    }
-
-    return () => {
-      if (inferenceIntervalRef.current) {
-        clearInterval(inferenceIntervalRef.current);
-        inferenceIntervalRef.current = null;
-      }
-    };
-  }, [step]);
+  // PASO 4: Bucle YOLOv8
+  // ELIMINADO: Todo el procesamiento ahora es 100% local en Edge AI usando useBiometricMonitor
 
   const startExam = async () => {
     setStep('active');
@@ -479,22 +358,17 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
         // BIO-FIX-2: await garantiza que el bucle arranca DESPUÉS de que
         // ensureHumanReady() termine. Evita condición de carrera en Celeron.
         //
-        // Firma v3: startMonitoring(videoElement, estudianteId, onStatusUpdate)
-        //   estudianteId → matrícula plana (string), clave en telemetria_examenes
+        // Firma v4: startMonitoring(videoElement, canvasElement, estudianteId, onStatusUpdate)
         await startMonitoring(
           videoRef.current,
+          canvasRef.current,
           formData.matricula || studentData?.matricula || 'Desconocida',
           (status) => {
-            // status = { tipoAnomalia, nivelConfianza, esMatch, timestamp }
-            setBiometricStatus(status);
-            if (!status.esMatch && status.tipoAnomalia) {
-              const mensajes = {
-                rostro_no_detectado:    'Monitor biométrico: sin rostro en cámara',
-                suplantacion_identidad: 'Monitor biométrico: posible suplantación de identidad',
-                multiples_rostros:      'Monitor biométrico: múltiples personas detectadas',
-                dispositivo_movil:      'Monitor biométrico: dispositivo móvil detectado',
-              };
-              setLastAlertMessage(mensajes[status.tipoAnomalia] ?? 'Alerta biométrica');
+            if (status.suspicionScore !== undefined && !penaltyLockRef.current) {
+              setSuspicionScore(status.suspicionScore);
+            }
+            if (status.tipoAnomalia) {
+              setLastAlertMessage(status.tipoAnomalia);
             }
           }
         );
@@ -586,35 +460,34 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       
       const resolvedPin = formData.pin || studentData?.pin || studentData?.roomCode || '';
       
-      // ── BUG-01 Fix: Calificación segura en el servidor ──────────────────────
-      // El cliente ya NO tiene acceso a correctOption (fue eliminado del JSON público).
-      // Llamamos al backend Flask que lee exam_answers (protegida con RLS) y calcula
-      // el puntaje — el cliente recibe únicamente el número final, nunca las respuestas.
+      // ── NUEVA ARQUITECTURA: Calificación 100% Local (Edge Computing) ──
+      // Obtenemos las respuestas de exam_answers y calificamos localmente.
       let calculatedScore = null;
       try {
-        const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const { data: answerData, error: answerError } = await supabase
+          .from('exam_answers')
+          .select('correct_options')
+          .eq('pin', resolvedPin)
+          .maybeSingle();
 
-        const gradeRes = await fetch(`${backendUrl}/api/grade`, {
-          method: 'POST',
-          signal: controller.signal,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pin: resolvedPin,
-            answers: selectedAnswers  // {"0": "a", "1": "c", ...}
-          })
-        });
-        clearTimeout(timeoutId);
-
-        if (gradeRes.ok) {
-          const gradeData = await gradeRes.json();
-          // gradeData = { score: 85, correctas: 7, total: 8 }
-          calculatedScore = gradeData.score ?? null;
+        if (!answerData) {
+            console.error("No se encontraron las respuestas maestras para este examen en la base de datos.");
+        } else if (answerData.correct_options) {
+          const correctOptions = answerData.correct_options;
+          const total = Object.keys(correctOptions).length;
+          let correctas = 0;
+          for (const key in correctOptions) {
+            if (correctOptions[key] === selectedAnswers[key]) {
+              correctas++;
+            }
+          }
+          if (total > 0) {
+            calculatedScore = Math.round((correctas / total) * 100);
+          }
         }
       } catch (gradeErr) {
-        // Backend no disponible — score queda null (no enviar dato incorrecto)
-        console.warn('[Centinela] No se pudo calificar en el servidor:', gradeErr);
+        // DB no disponible o RLS bloqueado — score queda null
+        console.warn('[Centinela] No se pudo calificar localmente:', gradeErr);
       }
 
       const submission = {
@@ -957,9 +830,9 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                       autoPlay 
                       playsInline 
                       muted 
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover transform scale-x-[-1]"
                     />
-                    <canvas ref={canvasRef} className="hidden" />
+                    <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full z-10 pointer-events-none transform scale-x-[-1]" />
                     <div className="absolute top-2 left-2 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
                       🔴 CENTINELA LIVE
                     </div>

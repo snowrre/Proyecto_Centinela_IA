@@ -1,404 +1,421 @@
 /**
- * useBiometricMonitor.js  ─── Custom Hook  (v3 — Arquitectura Edge Node)
+ * useBiometricMonitor.js  ─── Custom Hook  (v4 — Arquitectura Edge AI Unificada)
  * ─────────────────────────────────────────────────────────────────────────────
- * Responsabilidad ÚNICA: ciclo de monitoreo continuo SILENCIOSO durante el
- * examen. Corre en segundo plano cada N segundos sin bloquear el hilo principal.
- *
- * ── ARQUITECTURA DEL CICLO (setTimeout recursivo) ────────────────────────────
- *
- *  ┌─ scheduleNextTick() ─────────────────────────────────────────────────┐
- *  │   setTimeout(runMonitorTick, 10_000)                                 │
- *  └──────────────────────────────────────────────────────────────────────┘
- *         │ (10s después)
- *         ▼
- *  ┌─ runMonitorTick() ───────────────────────────────────────────────────┐
- *  │  1. await h.detect(video, configOverride)  ← puede tardar 80-400ms  │
- *  │  2. Evaluar las 4 reglas de negocio                                  │
- *  │  3. Si hay anomalía → enviar JSON a Supabase (telemetria_examenes)   │
- *  │  4. finally → scheduleNextTick()   ← SIEMPRE, incluso si hay error   │
- *  └──────────────────────────────────────────────────────────────────────┘
- *
- * Por qué setTimeout recursivo y NO setInterval:
- *   setInterval no espera a que el callback anterior termine. Si detect() tarda
- *   más de 10s (Celeron/Pentium bajo carga), los ticks se acumulan y saturan la
- *   GPU. Con el patrón recursivo, el siguiente tick empieza DESPUÉS del anterior.
- *
- * ── REGLAS DE NEGOCIO ────────────────────────────────────────────────────────
- *
- *   Regla 1 — SUPLANTACIÓN/ABANDONO:
- *     result.face.length === 0  →  tipo_anomalia: 'rostro_no_detectado'
- *     Además: si el embedding del rostro detectado ≠ Rostro Maestro (similitud
- *     de coseno < FACE_MATCH_THRESHOLD), tipo_anomalia: 'suplantacion_identidad'
- *
- *   Regla 2 — AYUDA EXTERNA:
- *     result.face.length > 1   →  tipo_anomalia: 'multiples_rostros'
- *
- *   Regla 3 — DISPOSITIVOS:
- *     Analiza result.object[] buscando etiquetas que contengan 'phone',
- *     'mobile' o 'cell'        →  tipo_anomalia: 'dispositivo_movil'
- *     NOTA: Human activa object detection en modo "override" por frame usando
- *     h.detect() con config local — sin mutar el singleton global para no
- *     afectar el Liveness Challenge que corre en BiometricAuth.
- *
- * ── TABLA DE DESTINO (Supabase): telemetria_examenes ─────────────────────────
- *
- *   estudiante_id   TEXT    — matrícula del alumno
- *   tipo_anomalia   TEXT    — clave de la regla disparada
- *   nivel_confianza FLOAT   — score o similitud del evento (0.0 – 1.0)
- *   created_at      TIMESTAMPTZ
- *
- *   Script DDL mínimo para crear la tabla si no existe:
- *
- *   CREATE TABLE IF NOT EXISTS public.telemetria_examenes (
- *     id              BIGSERIAL PRIMARY KEY,
- *     estudiante_id   TEXT         NOT NULL,
- *     tipo_anomalia   TEXT         NOT NULL,
- *     nivel_confianza FLOAT,
- *     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
- *   );
- *   ALTER TABLE public.telemetria_examenes ENABLE ROW LEVEL SECURITY;
- *   CREATE POLICY "insert_only_anon" ON public.telemetria_examenes
- *     FOR INSERT TO anon WITH CHECK (true);
- *
- * ─────────────────────────────────────────────────────────────────────────────
+ * Responsabilidad ÚNICA: ciclo de monitoreo continuo en tiempo real durante el
+ * examen. Corre en un bucle requestAnimationFrame fusionando YOLOv8 y MediaPipe.
  */
 
 import { useRef, useCallback, useEffect } from 'react';
 import { useBiometric } from '../context/BiometricContext';
+import * as ort from 'onnxruntime-web';
+
+// INYECTA ESTA LÍNEA PARA SOLUCIONAR EL ERROR DEL MAGIC WORD
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
+
+import { FaceLandmarker, FilesetResolver, DrawingUtils } from '@mediapipe/tasks-vision';
 import { supabase } from '../lib/supabase';
-import { getHumanInstance } from './useFaceDetection';
 
 // ── CONSTANTES DE CONFIGURACIÓN ───────────────────────────────────────────────
-const MONITOR_INTERVAL_MS  = 10_000;  // 10 s entre cada escaneo
-const FACE_MATCH_THRESHOLD = 0.40;    // similarity < 0.40 → suplantación
 const ALERT_COOLDOWN_MS    = 15_000;  // Anti-spam: mínimo 15 s entre alertas iguales
+const YAW_THRESHOLD = 15;
+const PITCH_THRESHOLD = 15;
+const INFRACTION_TIME_LIMIT_MS = 3000;
 
-/**
- * Palabras clave COCO-SSD / MobileNet que identifican un teléfono móvil
- * en el resultado de object detection de @vladmandic/human.
- * Incluye variantes en inglés (etiquetas del dataset COCO) y español.
- */
-const PHONE_LABELS = [
-  'cell phone', 'mobile phone', 'phone', 'smartphone', 'celular', 'móvil',
-];
+// =================================================================
+// 1. VARIABLES GLOBALES (SINGLETON) - ¡Fuera del hook de React!
+// =================================================================
+window.globalSession = window.globalSession || null;
+window.globalFaceLandmarker = window.globalFaceLandmarker || null;
+window.isInitializingAI = window.isInitializingAI || false;
 
-/**
- * CONFIG OVERRIDE para el tick del monitor:
- *   • Activa object detection (desactivado en el singleton global para no
- *     cargar el modelo de 6MB durante el Liveness Challenge).
- *   • Esta config se pasa como 2° arg a h.detect() y es local al tick —
- *     NO muta la config global del singleton.
- *   • En CPUs Celeron/Pentium, el modelo MobileNet-Lite de Human
- *     tarda ~150-300ms adicionales; es aceptable porque el siguiente tick
- *     no arranca hasta que finalice este (patrón setTimeout recursivo).
- */
-const DETECT_CONFIG_OVERRIDE = {
-  object: { enabled: true },
-};
-
-// ── HOOK PRINCIPAL ─────────────────────────────────────────────────────────────
 export function useBiometricMonitor() {
-  const { rostroMaestro, modelsLoaded } = useBiometric();
+  const { rostroMaestro } = useBiometric();
 
-  const timeoutRef       = useRef(null);   // Handle del setTimeout activo
-  const isRunningRef     = useRef(false);  // Guard: evita arranques dobles
-  const humanReadyRef    = useRef(false);  // True tras el primer h.load()
+  const isRunningRef     = useRef(false);
+  const engineReadyRef   = useRef(false);
+  const animationFrameId = useRef(null);
 
-  // Cooldowns independientes por tipo de anomalía para no silenciar un tipo
-  // por el cooldown de otro tipo de alerta.
+  // Variables del Motor de Reglas
+  const infractionStartMsRef = useRef(0);
+  const currentInfractionRef = useRef(null);
+  const alertaEnviadaRef = useRef(false);
+  const lastVideoTimeRef = useRef(-1);
+
+  // Cooldowns
   const lastAlertTimeRef = useRef({
-    rostro_no_detectado:    0,
-    suplantacion_identidad: 0,
-    multiples_rostros:      0,
-    dispositivo_movil:      0,
+    'ESTUDIANTE AUSENTE': 0,
+    'MÚLTIPLES PERSONAS DETECTADAS': 0,
+    'USO DE DISPOSITIVO NO AUTORIZADO': 0,
+    'MIRADA DESVIADA (LADOS)': 0,
+    'MIRADA DESVIADA (ABAJO)': 0,
   });
 
-  // ── Inicialización lazy de Human ─────────────────────────────────────────────
-  // Se llama solo una vez. Reutiliza el singleton para no re-registrar el backend.
-  const ensureHumanReady = useCallback(async () => {
-    if (humanReadyRef.current) return true;
-    try {
-      const h = getHumanInstance();
-      await h.load();
-      humanReadyRef.current = true;
-      console.log('[BioMonitor] Motor Human listo ✓');
-      return true;
-    } catch (err) {
-      console.error('[BioMonitor] Error inicializando Human:', err);
-      return false;
-    }
-  }, []);
-
-  // ── Envío de telemetría a Supabase ───────────────────────────────────────────
-  /**
-   * Inserta un registro en `telemetria_examenes`.
-   * Aplica un cooldown POR TIPO para evitar spam de la misma anomalía.
-   *
-   * Privacidad por diseño: solo se envían metadatos textuales (JSON).
-   * Ningún pixel, frame de video ni dato biométrico crudo llega a Supabase.
-   *
-   * @param {string} estudianteId    — Matrícula del alumno
-   * @param {string} tipoAnomalia    — Clave de la regla disparada
-   * @param {number} nivelConfianza  — Score de confianza (0.0 – 1.0)
-   */
-  const enviarTelemetria = useCallback(async (estudianteId, tipoAnomalia, nivelConfianza = 0) => {
+  const enviarTelemetria = useCallback(async (estudianteId, tipoAnomalia, detalles, nivelConfianza = 1.0) => {
     const now = Date.now();
     const lastTime = lastAlertTimeRef.current[tipoAnomalia] ?? 0;
 
     if (now - lastTime < ALERT_COOLDOWN_MS) {
-      console.log(`[BioMonitor] ${tipoAnomalia} en cooldown, omitiendo.`);
       return;
     }
     lastAlertTimeRef.current[tipoAnomalia] = now;
 
-    // ── PRIVACIDAD ESTRICTA: Solo JSON de metadatos. Ningún dato biométrico crudo. ──
     const payload = {
-      estudiante_id:   estudianteId,
-      tipo_anomalia:   tipoAnomalia,
-      nivel_confianza: parseFloat(nivelConfianza.toFixed(4)),
-      creado_en:       new Date().toISOString(),
+      estudiante_id: estudianteId,
+      tipo_anomalia: tipoAnomalia,
+      duracion_segundos: parseFloat((INFRACTION_TIME_LIMIT_MS / 1000).toFixed(1)),
+      detalles_tecnicos: detalles,
+      requiere_revision: true,
+      nivel_confianza: parseFloat((nivelConfianza * 100).toFixed(2)),
+      creado_en: new Date().toISOString(),
     };
 
     try {
-      const { error } = await supabase
-        .from('telemetria_examenes')
-        .insert([payload]);
-
+      const { error } = await supabase.from('telemetria_examenes').insert([payload]);
       if (error) throw error;
-
-      console.warn(
-        `[BioMonitor] 🚨 Telemetría enviada → ${tipoAnomalia} ` +
-        `(confianza: ${nivelConfianza.toFixed(2)})`,
-        payload,
-      );
+      console.warn(`[BioMonitor] 🚨 Telemetría enviada → ${tipoAnomalia}`, payload);
     } catch (err) {
       console.error('[BioMonitor] Fallo al enviar telemetría:', err);
     }
   }, []);
 
-  // ── Función principal del ciclo ───────────────────────────────────────────────
-  /**
-   * startMonitoring — arranca el bucle silencioso de monitoreo.
-   *
-   * @param {HTMLVideoElement} videoElement   — Feed de la cámara del alumno
-   * @param {string}           estudianteId  — Matrícula (clave primaria del alumno)
-   * @param {Function}         onStatusUpdate — Callback opcional para la UI
-   *   Recibe: { tipoAnomalia, nivelConfianza, esMatch, timestamp }
-   */
-  const startMonitoring = useCallback(async (videoElement, estudianteId = '', onStatusUpdate = null) => {
-    // Guards de arranque
-    if (isRunningRef.current) {
-      console.warn('[BioMonitor] Ya está corriendo. Ignorando llamada duplicada.');
-      return;
-    }
-    if (!modelsLoaded) {
-      console.warn('[BioMonitor] Modelos no cargados. Monitoreo cancelado.');
-      return;
-    }
-    if (!rostroMaestro) {
-      console.warn('[BioMonitor] Sin Rostro Maestro. Monitoreo cancelado.');
-      return;
+  const ensureEngineReady = useCallback(async () => {
+    if (engineReadyRef.current) return true;
+    
+    // Si ya fue instanciado globalmente, lo reusamos inmediatamente
+    if (window.globalSession && window.globalFaceLandmarker) {
+      console.log("[BioMonitor] Reusando instancias de MediaPipe y YOLOv8...");
+      engineReadyRef.current = true;
+      return true;
     }
 
-    const ready = await ensureHumanReady();
-    if (!ready) {
-      console.error('[BioMonitor] Human no pudo inicializarse. Monitoreo cancelado.');
-      return;
-    }
-
-    const h = getHumanInstance();
-    isRunningRef.current = true;
-    console.log(
-      '[BioMonitor] ▶ Iniciando ciclo silencioso cada',
-      MONITOR_INTERVAL_MS / 1000,
-      's | Alumno:',
-      estudianteId,
-    );
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // BUCLE PRINCIPAL: setTimeout recursivo
-    //
-    // Flujo por tick:
-    //   scheduleNextTick()
-    //     → setTimeout(runMonitorTick, 10_000)
-    //       → runMonitorTick()
-    //         → await h.detect(video, override)  [puede tardar 80-500ms]
-    //         → evaluar reglas 1, 2 y 3
-    //         → enviarTelemetria() [si hay anomalía, solo JSON]
-    //         → finally: scheduleNextTick()       [SIEMPRE]
-    // ────────────────────────────────────────────────────────────────────────────
-
-    const scheduleNextTick = () => {
-      if (!isRunningRef.current) return;
-      timeoutRef.current = setTimeout(runMonitorTick, MONITOR_INTERVAL_MS);
-    };
-
-    const runMonitorTick = async () => {
-      if (!isRunningRef.current) return;
-
-      // Guard pasivo: si el backend aún no está listo (primera carga lenta),
-      // saltamos el tick sin llamar detect() para no bloquear la red.
-      if (!h.ready) {
-        console.log('[BioMonitor] Human no listo todavía, saltando tick.');
-        scheduleNextTick();
-        return;
+    if (window.isInitializingAI) {
+      // Si ya se está inicializando en otro hilo (ej. StrictMode), esperamos
+      while (window.isInitializingAI) {
+        await new Promise(r => setTimeout(r, 100));
       }
-
-      // Guard: el elemento video debe tener datos reales de píxeles
-      if (!videoElement || videoElement.readyState < 2 || videoElement.paused) {
-        scheduleNextTick();
-        return;
+      if (window.globalSession && window.globalFaceLandmarker) {
+        engineReadyRef.current = true;
+        return true;
       }
-
-      try {
-        // ── DETECCIÓN COMPLETA DEL FRAME ────────────────────────────────────
-        //
-        // Se pasa DETECT_CONFIG_OVERRIDE como 2° argumento para activar
-        // object detection en este tick sin mutar la config global.
-        // Esto permite detectar celulares (Regla 3) de forma aislada.
-        //
-        // h.detect() corre los modelos habilitados:
-        //   • face        — FaceMesh 468 puntos
-        //   • description — embedding 512-dim (para face match)
-        //   • object      — MobileNet-COCO (activado por override → Regla 3)
-        //
-        const result = await h.detect(videoElement, DETECT_CONFIG_OVERRIDE);
-
-        if (!result) {
-          scheduleNextTick();
-          return;
-        }
-
-        const faceCount = result.face?.length ?? 0;
-
-        // ── REGLA 1A: AUSENCIA DE ROSTRO ─────────────────────────────────────
-        // El alumno se fue de la cámara o está tapando la cara.
-        if (faceCount === 0) {
-          console.log('[BioMonitor] ⚠ Regla 1A: Ningún rostro detectado.');
-          await enviarTelemetria(estudianteId, 'rostro_no_detectado', 1.0);
-          onStatusUpdate?.({
-            tipoAnomalia:   'rostro_no_detectado',
-            nivelConfianza: 1.0,
-            esMatch:        false,
-            timestamp:      Date.now(),
-          });
-          return; // No evaluar más reglas este tick
-        }
-
-        // ── REGLA 2: MÚLTIPLES ROSTROS ────────────────────────────────────────
-        // Hay más de una persona frente a la cámara → posible ayuda externa.
-        if (faceCount > 1) {
-          // Confianza = promedio del score de detección de todos los rostros extras
-          const avgScore = result.face
-            .slice(1) // ignoramos el primer rostro (el alumno)
-            .reduce((sum, f) => sum + (f.score ?? 0.95), 0) / (faceCount - 1);
-
-          console.warn(`[BioMonitor] ⚠ Regla 2: ${faceCount} rostros detectados.`);
-          await enviarTelemetria(estudianteId, 'multiples_rostros', avgScore);
-          onStatusUpdate?.({
-            tipoAnomalia:   'multiples_rostros',
-            nivelConfianza: avgScore,
-            esMatch:        false,
-            timestamp:      Date.now(),
-          });
-          // No retornamos: seguimos para evaluar también la identidad del rostro 0
-        }
-
-        // ── REGLA 1B: SUPLANTACIÓN DE IDENTIDAD ──────────────────────────────
-        // Hay exactamente 1 rostro pero no coincide con el Rostro Maestro.
-        // (Si hay múltiples, comparamos el primero igualmente.)
-        const embeddingActual = result.face[0]?.embedding;
-
-        if (embeddingActual?.length > 0 && rostroMaestro?.length > 0) {
-          const matchResult = h.match(embeddingActual, rostroMaestro);
-          const similitud   = matchResult.similarity ?? 0;
-          const esMatch     = similitud >= FACE_MATCH_THRESHOLD;
-
-          console.log(
-            `[BioMonitor] Face match → similitud: ${similitud.toFixed(4)} ` +
-            `| umbral: ${FACE_MATCH_THRESHOLD} | ${esMatch ? '✅ OK' : '❌ MISMATCH'}`,
-          );
-
-          onStatusUpdate?.({
-            tipoAnomalia:   esMatch ? null : 'suplantacion_identidad',
-            nivelConfianza: similitud,
-            esMatch,
-            timestamp:      Date.now(),
-          });
-
-          if (!esMatch) {
-            // nivel_confianza aquí = qué tan SEGURO está el sistema de que NO es él
-            // → usamos el complemento de la similitud (1 - similarity)
-            await enviarTelemetria(estudianteId, 'suplantacion_identidad', 1 - similitud);
-          }
-        }
-
-        // ── REGLA 3: DISPOSITIVO MÓVIL ───────────────────────────────────────
-        // Busca en result.object[] objetos cuya etiqueta incluya palabras clave
-        // de teléfonos. Human popula este array gracias al DETECT_CONFIG_OVERRIDE
-        // que activa el modelo MobileNet-COCO en este tick específico.
-        //
-        // Privacidad: si se detecta un phone, solo enviamos su score (número).
-        // No se envía el boundingBox ni ningún fragmento de imagen.
-        const objects = result.object ?? [];
-        if (objects.length > 0) {
-          const phoneObj = objects.find(obj => {
-            // Human puede usar `label` (v3) o `class` (v2 legacy)
-            const etiqueta = (obj.label ?? obj.class ?? '').toLowerCase();
-            return PHONE_LABELS.some(kw => etiqueta.includes(kw));
-          });
-
-          if (phoneObj) {
-            const confianzaPhone = phoneObj.score ?? phoneObj.confidence ?? 0.9;
-            console.warn('[BioMonitor] ⚠ Regla 3: Dispositivo móvil detectado.', {
-              label:  phoneObj.label ?? phoneObj.class,
-              score:  confianzaPhone,
-            });
-            await enviarTelemetria(estudianteId, 'dispositivo_movil', confianzaPhone);
-            onStatusUpdate?.({
-              tipoAnomalia:   'dispositivo_movil',
-              nivelConfianza: confianzaPhone,
-              esMatch:        false,
-              timestamp:      Date.now(),
-            });
-          }
-        }
-
-      } catch (err) {
-        // Capturar cualquier error de la pipeline sin romper el bucle.
-        // Un frame corrupto o un error de WebGL son transitorios; el siguiente
-        // tick probablemente funcionará bien.
-        console.error('[BioMonitor] Error en tick de monitoreo:', err);
-      } finally {
-        // ✅ CLAVE: el siguiente tick se agenda SIEMPRE en el bloque finally,
-        // incluso si hubo un error. Esto garantiza que el bucle nunca muere
-        // silenciosamente aunque detect() falle varias veces seguidas.
-        scheduleNextTick();
-      }
-    };
-
-    // Arrancar el primer tick
-    scheduleNextTick();
-
-  }, [rostroMaestro, modelsLoaded, ensureHumanReady, enviarTelemetria]);
-
-  // ── PARADA DEL CICLO ────────────────────────────────────────────────────────
-  /**
-   * stopMonitoring — cancela el setTimeout pendiente y marca el bucle como inactivo.
-   * Debe llamarse al desmontar el componente, al terminar el examen o al expulsar.
-   */
-  const stopMonitoring = useCallback(() => {
-    isRunningRef.current = false;
-
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
     }
 
-    console.log('[BioMonitor] ⏹ Ciclo de monitoreo detenido.');
+    window.isInitializingAI = true;
+    try {
+      console.log("[BioMonitor] Descargando modelos de visión...");
+      ort.env.wasm.numThreads = 4;
+      window.globalSession = await ort.InferenceSession.create('/yolov8n.onnx', { executionProviders: ['wasm'] });
+      
+      const filesetResolver = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
+      );
+      
+      window.globalFaceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+              modelAssetPath: "/face_landmarker.task",
+              delegate: "GPU"
+          },
+          outputFaceBlendshapes: true,
+          runningMode: "VIDEO",
+          numFaces: 1
+      });
+
+      engineReadyRef.current = true;
+      window.isInitializingAI = false; // Liberamos el candado global
+      console.log('[BioMonitor] ¡MediaPipe y YOLO inicializados con éxito!');
+      return true;
+    } catch (err) {
+      console.error('[BioMonitor] Error crítico al cargar la IA:', err);
+      window.isInitializingAI = false;
+      return false;
+    }
   }, []);
 
-  // Limpieza automática al desmontar el componente (ciclo de vida de React)
+  // --- Funciones Matemáticas Auxiliares ---
+  const iou = (box1, box2) => {
+    const xA = Math.max(box1.x, box2.x);
+    const yA = Math.max(box1.y, box2.y);
+    const xB = Math.min(box1.x + box1.w, box2.x + box2.w);
+    const yB = Math.min(box1.y + box1.h, box2.y + box2.h);
+    const interArea = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+    const box1Area = box1.w * box1.h;
+    const box2Area = box2.w * box2.h;
+    return interArea / (box1Area + box2Area - interArea);
+  };
+
+  const nms = (boxes, iouThreshold) => {
+    boxes.sort((a, b) => b.confidence - a.confidence);
+    const result = [];
+    while (boxes.length > 0) {
+        const best = boxes.shift();
+        result.push(best);
+        boxes = boxes.filter(box => iou(best, box) < iouThreshold);
+    }
+    return result;
+  };
+
+  const startMonitoring = useCallback(async (videoElement, canvasElement, estudianteId = '', onStatusUpdate = null) => {
+    if (isRunningRef.current) return;
+    
+    const ready = await ensureEngineReady();
+    if (!ready) return;
+
+    isRunningRef.current = true;
+    console.log('[BioMonitor] ▶ Iniciando ciclo de monitoreo en tiempo real | Alumno:', estudianteId);
+
+    const canvasCtx = canvasElement.getContext('2d');
+    const classNames = { 0: "Persona", 67: "Teléfono Móvil" };
+
+    const predictWebcam = async () => {
+      if (!isRunningRef.current) return;
+
+      if (videoElement.readyState >= 2 && !videoElement.paused) {
+        canvasElement.width = videoElement.videoWidth;
+        canvasElement.height = videoElement.videoHeight;
+        
+        let startTimeMs = performance.now();
+        
+        if (lastVideoTimeRef.current !== videoElement.currentTime) {
+          lastVideoTimeRef.current = videoElement.currentTime;
+          
+          canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+          let currentPersonCount = 0;
+          let isPhoneDetected = false;
+
+          // ========================================================
+          // LÓGICA YOLOv8 (LETTERBOXING)
+          // ========================================================
+          if (window.globalSession) {
+            const yoloSize = 640;
+            const canvasYolo = document.createElement('canvas');
+            canvasYolo.width = yoloSize;
+            canvasYolo.height = yoloSize;
+            const ctxYolo = canvasYolo.getContext('2d', { willReadFrequently: true });
+
+            const vWidth = videoElement.videoWidth;
+            const vHeight = videoElement.videoHeight;
+            
+            const scale = Math.min(yoloSize / vWidth, yoloSize / vHeight);
+            const newWidth = vWidth * scale;
+            const newHeight = vHeight * scale;
+            
+            const padX = (yoloSize - newWidth) / 2;
+            const padY = (yoloSize - newHeight) / 2;
+
+            ctxYolo.fillStyle = '#000000';
+            ctxYolo.fillRect(0, 0, yoloSize, yoloSize);
+            ctxYolo.drawImage(videoElement, padX, padY, newWidth, newHeight);
+            
+            const imgData = ctxYolo.getImageData(0, 0, yoloSize, yoloSize);
+            const input = new Float32Array(1 * 3 * yoloSize * yoloSize);
+            for (let i = 0; i < imgData.data.length / 4; i++) {
+                input[i] = imgData.data[i * 4] / 255.0;
+                input[i + yoloSize * yoloSize] = imgData.data[i * 4 + 1] / 255.0;
+                input[i + 2 * yoloSize * yoloSize] = imgData.data[i * 4 + 2] / 255.0;
+            }
+            const tensor = new ort.Tensor('float32', input, [1, 3, yoloSize, yoloSize]);
+
+            try {
+                const results = await window.globalSession.run({ images: tensor }); 
+                const output = results[Object.keys(results)[0]].data; 
+                
+                let rawBoxes = [];
+                const numBoxes = 8400; 
+                const numClasses = 80;
+
+                for (let i = 0; i < numBoxes; i++) {
+                    let maxConf = 0;
+                    let classId = -1;
+                    for (let c = 0; c < numClasses; c++) {
+                        const conf = output[(4 + c) * numBoxes + i];
+                        if (conf > maxConf) { maxConf = conf; classId = c; }
+                    }
+
+                    if (maxConf > 0.50) {
+                        const xc = output[0 * numBoxes + i];
+                        const yc = output[1 * numBoxes + i];
+                        const w = output[2 * numBoxes + i];
+                        const h = output[3 * numBoxes + i];
+                        rawBoxes.push({
+                            x: xc - w / 2, y: yc - h / 2, w: w, h: h, confidence: maxConf, classId: classId
+                        });
+                    }
+                }
+
+                const finalBoxes = nms(rawBoxes, 0.45);
+                
+                finalBoxes.forEach(box => {
+                    if (box.classId === 0 || box.classId === 67) { 
+                        if (box.classId === 0) currentPersonCount++;
+                        if (box.classId === 67) isPhoneDetected = true;
+                        
+                        const unpaddedX = (box.x - padX) / scale;
+                        const unpaddedY = (box.y - padY) / scale;
+                        const unpaddedW = box.w / scale;
+                        const unpaddedH = box.h / scale;
+
+                        canvasCtx.strokeStyle = box.classId === 67 ? '#FF0000' : '#00FF00';
+                        canvasCtx.lineWidth = 3;
+                        canvasCtx.strokeRect(unpaddedX, unpaddedY, unpaddedW, unpaddedH);
+
+                        canvasCtx.fillStyle = box.classId === 67 ? '#FF0000' : '#00FF00';
+                        canvasCtx.font = "18px monospace";
+                        
+                        canvasCtx.save();
+                        canvasCtx.translate(unpaddedX + unpaddedW, unpaddedY);
+                        canvasCtx.scale(-1, 1);
+                        const label = `${classNames[box.classId] || 'Obj'} ${Math.round(box.confidence * 100)}%`;
+                        canvasCtx.fillText(label, 0, -5);
+                        canvasCtx.restore();
+                    }
+                });
+            } catch (error) { console.error("Error YOLOv8:", error); }
+          }
+
+          // ========================================================
+          // LÓGICA MEDIAPIPE (HEAD POSE)
+          // ========================================================
+          let yaw = 0;
+          let pitch = 0;
+
+          if (window.globalFaceLandmarker) {
+              const results = window.globalFaceLandmarker.detectForVideo(videoElement, startTimeMs);
+              if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+                  const drawingUtils = new DrawingUtils(canvasCtx);
+                  for (const landmarks of results.faceLandmarks) {
+                      drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, { color: "#C0C0C040", lineWidth: 1 });
+                      drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, { color: "#00FF00", lineWidth: 2 });
+                      drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, { color: "#00FF00", lineWidth: 2 });
+
+                      const w = canvasElement.width;
+                      const h = canvasElement.height;
+                      const leftEye = landmarks[33];
+                      const rightEye = landmarks[263];
+                      const topHead = landmarks[10];
+                      const bottomChin = landmarks[152];
+
+                      const deltaX_yaw = (rightEye.x - leftEye.x) * w;
+                      const deltaZ_yaw = (rightEye.z - leftEye.z) * w;
+                      yaw = Math.atan2(deltaZ_yaw, deltaX_yaw) * (180 / Math.PI);
+
+                      const deltaY_pitch = (bottomChin.y - topHead.y) * h;
+                      const deltaZ_pitch = (bottomChin.z - topHead.z) * w; 
+                      pitch = (Math.atan2(deltaZ_pitch, deltaY_pitch) * (180 / Math.PI)) + 13; 
+                  }
+              }
+          }
+
+          // ========================================================
+          // MOTOR DE REGLAS (MÁQUINA DE ESTADOS)
+          // ========================================================
+          let activeViolation = null;
+
+          if (isPhoneDetected) {
+              activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
+          } else if (currentPersonCount > 1) {
+              activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
+          } else if (currentPersonCount === 0) {
+              activeViolation = "ESTUDIANTE AUSENTE";
+          } else if (yaw > YAW_THRESHOLD || yaw < -YAW_THRESHOLD) {
+              activeViolation = "MIRADA DESVIADA (LADOS)";
+          } else if (pitch > PITCH_THRESHOLD) {
+              activeViolation = "MIRADA DESVIADA (ABAJO)";
+          }
+
+          const currentTimeMs = performance.now();
+          let statusColor = "#00FF00";
+          let statusText = "Supervisión Activa (OK)";
+          let currentScore = 0;
+
+          if (activeViolation) {
+              if (infractionStartMsRef.current === 0) {
+                  infractionStartMsRef.current = currentTimeMs;
+                  currentInfractionRef.current = activeViolation;
+                  alertaEnviadaRef.current = false;
+                  statusColor = "#FFFF00"; 
+                  statusText = `Evaluando: ${currentInfractionRef.current}...`;
+                  currentScore = 50;
+              } else {
+                  const elapsedSeconds = (currentTimeMs - infractionStartMsRef.current) / 1000;
+                  
+                  if (elapsedSeconds >= 3.0) {
+                      statusColor = "#FF0000"; 
+                      statusText = `🚨 INFRACCIÓN: ${currentInfractionRef.current}`;
+                      currentScore = 100;
+                      
+                      if (!alertaEnviadaRef.current) {
+                          alertaEnviadaRef.current = true;
+                          const detalles = {
+                            grados_yaw: parseFloat(yaw.toFixed(2)),
+                            grados_pitch: parseFloat(pitch.toFixed(2)),
+                            personas_detectadas: currentPersonCount,
+                            celular_detectado: isPhoneDetected,
+                            motor_ia: isPhoneDetected || currentPersonCount !== 1 ? 'YOLOv8' : 'MediaPipe'
+                          };
+                          enviarTelemetria(estudianteId, currentInfractionRef.current, detalles, 1.0);
+                      }
+                  } else {
+                      statusColor = "#FFFF00";
+                      statusText = `⚠️ Advertencia: ${currentInfractionRef.current} (${elapsedSeconds.toFixed(1)}s)`;
+                      currentScore = 50 + (elapsedSeconds / 3.0) * 50;
+                  }
+              }
+          } else {
+              infractionStartMsRef.current = 0;
+              currentInfractionRef.current = null;
+              alertaEnviadaRef.current = false;
+              currentScore = 0;
+          }
+
+          // Callback UI opcional
+          onStatusUpdate?.({
+            tipoAnomalia: currentInfractionRef.current,
+            suspicionScore: currentScore,
+            timestamp: Date.now(),
+          });
+
+          // Dibujar Estado UI en Canvas
+          canvasCtx.fillStyle = statusColor;
+          canvasCtx.font = "bold 20px monospace";
+          canvasCtx.save();
+          canvasCtx.translate(canvasElement.width, 0); 
+          canvasCtx.scale(-1, 1);
+          canvasCtx.fillText(statusText, 20, 40);
+          
+          canvasCtx.font = "14px monospace";
+          canvasCtx.fillStyle = "#FFFFFF";
+          canvasCtx.fillText(`Yaw: ${yaw.toFixed(1)}° | Pitch: ${pitch.toFixed(1)}°`, 20, 70);
+          canvasCtx.fillText(`Personas: ${currentPersonCount} | Celular: ${isPhoneDetected ? 'SI' : 'NO'}`, 20, 90);
+          canvasCtx.restore();
+        }
+      }
+      
+      animationFrameId.current = window.requestAnimationFrame(predictWebcam);
+    };
+
+    predictWebcam();
+  }, [ensureEngineReady, enviarTelemetria]);
+
+  const stopMonitoring = useCallback(() => {
+    isRunningRef.current = false;
+    if (animationFrameId.current) {
+      window.cancelAnimationFrame(animationFrameId.current);
+      animationFrameId.current = null;
+    }
+    
+    console.log('[BioMonitor] ⏹ Ciclo de monitoreo detenido. Liberando memoria WebGL...');
+    
+    // 1. Apagamos el motor de MediaPipe para liberar la gráfica
+    if (window.globalFaceLandmarker) {
+        window.globalFaceLandmarker.close();
+        window.globalFaceLandmarker = null;
+    }
+    
+    // 2. Reiniciamos el candado
+    window.isInitializingAI = false;
+    
+  }, []);
+
   useEffect(() => {
     return () => stopMonitoring();
   }, [stopMonitoring]);
@@ -406,8 +423,6 @@ export function useBiometricMonitor() {
   return {
     startMonitoring,
     stopMonitoring,
-    isRunning:          isRunningRef,   // Ref, no estado → no causa re-renders
-    FACE_MATCH_THRESHOLD,
-    MONITOR_INTERVAL_MS,
+    isRunning: isRunningRef,
   };
 }

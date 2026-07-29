@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Centinela IA - Sandbox YOLOv8 + MediaPipe</title>
+    <!-- Importamos ONNX Runtime para YOLO -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .vision-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            margin-top: 20px;
+            border: 2px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        /* El video de origen y el canvas deben estar superpuestos exactamente */
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            /* Espejar la imagen para que actúe como un espejo real */
+            transform: scaleX(-1);
+        }
+        canvas {
+            z-index: 10;
+            pointer-events: none;
+        }
+        #status { font-weight: bold; color: #ffeb3b; font-size: 1.2rem; }
+    </style>
+</head>
+<body>
+    <h2>Centinela IA: Motor de Visión Unificado</h2>
+    <p id="status">Inicializando modelos en WebAssembly...</p>
+    
+    <div class="vision-container">
+        <video id="webcam" width="640" height="480" autoplay playsinline></video>
+        <canvas id="output_canvas"></canvas>
+    </div>
+
+    <!-- Importamos la API moderna de MediaPipe Tasks Vision -->
+    <script type="module">
+        import {
+            FaceLandmarker,
+            FilesetResolver,
+            DrawingUtils
+        } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+        
+        // --- NUEVO: Importar cliente de Supabase ---
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+        // Reemplaza esto con los datos de configuración de tu proyecto
+        const SUPABASE_URL = 'https://fwcedxynwcnexxjzhpdp.supabase.co'; 
+        const SUPABASE_ANON_KEY = 'sb_publishable_5oww6JTrQ9j-9DeqDxfgfQ_oeVL7T8f';
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // -------------------------------------------
+
+        const video = document.getElementById("webcam");
+        const canvasElement = document.getElementById("output_canvas");
+        const canvasCtx = canvasElement.getContext("2d");
+        const statusDiv = document.getElementById("status");
+
+        let faceLandmarker;
+        let session; // Para YOLOv8
+        let lastVideoTime = -1;
+
+        // Variables de estado para el Motor de Reglas
+        let infractionStartMs = 0;
+        let currentInfraction = null;
+        let redFlagTriggered = false;
+
+        // Variables puente para leer los datos de YOLO
+        let currentPersonCount = 0;
+        let isPhoneDetected = false;
+
+        const classNames = {
+            0: "Persona",
+            67: "Teléfono Móvil"
+        };
+
+        // --- FUNCIONES MATEMÁTICAS PARA DECODIFICAR YOLOv8 ---
+        function iou(box1, box2) {
+            const xA = Math.max(box1.x, box2.x);
+            const yA = Math.max(box1.y, box2.y);
+            const xB = Math.min(box1.x + box1.w, box2.x + box2.w);
+            const yB = Math.min(box1.y + box1.h, box2.y + box2.h);
+            const interArea = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+            const box1Area = box1.w * box1.h;
+            const box2Area = box2.w * box2.h;
+            return interArea / (box1Area + box2Area - interArea);
+        }
+
+        function nms(boxes, iouThreshold) {
+            boxes.sort((a, b) => b.confidence - a.confidence);
+            const result = [];
+            while (boxes.length > 0) {
+                const best = boxes.shift();
+                result.push(best);
+                boxes = boxes.filter(box => iou(best, box) < iouThreshold);
+            }
+            return result;
+        }
+
+        // 1. Configurar e instanciar MediaPipe y YOLO
+        async function initializeAI() {
+            try {
+                // Instanciar YOLOv8
+                statusDiv.innerText = "Cargando modelo YOLOv8...";
+                ort.env.wasm.numThreads = 4;
+                session = await ort.InferenceSession.create('./yolov8n.onnx', { executionProviders: ['wasm'] });
+                
+                // Instanciar MediaPipe
+                statusDiv.innerText = "Cargando modelo MediaPipe...";
+                const filesetResolver = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+                );
+                
+                faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+                        delegate: "GPU"
+                    },
+                    outputFaceBlendshapes: true,
+                    runningMode: "VIDEO",
+                    numFaces: 1
+                });
+                
+                statusDiv.innerText = "Modelos listos. Encendiendo cámara...";
+                startCamera();
+            } catch (error) {
+                statusDiv.innerText = "Error cargando la IA. Revisa la consola.";
+                console.error(error);
+            }
+        }
+
+        // 2. Arrancar la cámara web
+        function startCamera() {
+            navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } }).then((stream) => {
+                video.srcObject = stream;
+                video.addEventListener("loadeddata", predictWebcam);
+                statusDiv.innerText = "¡Cámara encendida! Motor de visión unificado activo.";
+            });
+        }
+
+        // Variables para el candado booleano
+        let alertaEnviada = false;
+
+        // Función para inyectar a la base de datos
+        async function registrarInfraccionDB(tipo, duracion, yaw, pitch, personas, celular) {
+            console.log(`📡 Enviando reporte a Supabase: ${tipo}...`);
+            
+            // Construimos el JSON dinámico con la evidencia técnica
+            const detalles = {
+                grados_yaw: parseFloat(yaw.toFixed(2)),
+                grados_pitch: parseFloat(pitch.toFixed(2)),
+                personas_detectadas: personas,
+                celular_detectado: celular,
+                motor_ia: celular || personas !== 1 ? 'YOLOv8' : 'MediaPipe'
+            };
+
+            try {
+                const { data, error } = await supabase
+                    .from('telemetria_examenes')
+                    .insert([
+                        {
+                            // En tu sandbox, usaremos IDs simulados. En producción vendrán de tu login.
+                            session_id: '6e07d0bb-a5c9-4854-bcc3-b9269e24f5c5', // Sustituye por un UUID válido de tu tabla exam_sessions si tiene restricción de llave foránea
+                            estudiante_id: 'sandbox_test_01', 
+                            tipo_anomalia: tipo,
+                            duracion_segundos: parseFloat(duracion.toFixed(1)),
+                            detalles_tecnicos: detalles,
+                            requiere_revision: true,
+                            nivel_confianza: 100 // <-- ESTA ES LA LÍNEA QUE FALTABA
+                        }
+                    ]);
+
+                if (error) throw error;
+                console.log("✅ Reporte guardado con éxito en la nube.");
+            } catch (err) {
+                console.error("❌ Error al guardar en Supabase:", err.message);
+            }
+        }
+
+        // 3. El ciclo unificado de predicción y dibujo
+        async function predictWebcam() {
+            // Sincronizar resoluciones
+            canvasElement.width = video.videoWidth;
+            canvasElement.height = video.videoHeight;
+            
+            let startTimeMs = performance.now();
+            
+            if (lastVideoTime !== video.currentTime) {
+                lastVideoTime = video.currentTime;
+                
+                // Limpiar el frame anterior
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+                // ========================================================
+                // INYECCIÓN: LÓGICA DE YOLOV8 (CORREGIDA CON LETTERBOXING)
+                // ========================================================
+                if (session) {
+                    // 1. Preparar el canvas interno para YOLO (estricto a 640x640)
+                    const yoloSize = 640;
+                    const canvasYolo = document.createElement('canvas');
+                    canvasYolo.width = yoloSize;
+                    canvasYolo.height = yoloSize;
+                    const ctxYolo = canvasYolo.getContext('2d', { willReadFrequently: true });
+
+                    // 2. Matemáticas de Letterboxing (Preservar proporción 4:3)
+                    const vWidth = video.videoWidth;   // Normalmente 640
+                    const vHeight = video.videoHeight; // Normalmente 480
+                    
+                    // Escala para que el video quepa sin deformarse
+                    const scale = Math.min(yoloSize / vWidth, yoloSize / vHeight);
+                    const newWidth = vWidth * scale;   // 640
+                    const newHeight = vHeight * scale; // 480
+                    
+                    // Padding (relleno negro) para centrar la imagen
+                    const padX = (yoloSize - newWidth) / 2;  // 0 px
+                    const padY = (yoloSize - newHeight) / 2; // 80 px (franjas horizontales)
+
+                    // Dibujar fondo negro (tensor neutro) y montar el video
+                    ctxYolo.fillStyle = '#000000';
+                    ctxYolo.fillRect(0, 0, yoloSize, yoloSize);
+                    ctxYolo.drawImage(video, padX, padY, newWidth, newHeight);
+                    
+                    // Extraer píxeles limpios
+                    const imgData = ctxYolo.getImageData(0, 0, yoloSize, yoloSize);
+
+                    // 3. Alimentar el Tensor
+                    const input = new Float32Array(1 * 3 * yoloSize * yoloSize);
+                    for (let i = 0; i < imgData.data.length / 4; i++) {
+                        input[i] = imgData.data[i * 4] / 255.0;
+                        input[i + yoloSize * yoloSize] = imgData.data[i * 4 + 1] / 255.0;
+                        input[i + 2 * yoloSize * yoloSize] = imgData.data[i * 4 + 2] / 255.0;
+                    }
+                    const tensor = new ort.Tensor('float32', input, [1, 3, yoloSize, yoloSize]);
+
+                    try {
+                        const results = await session.run({ images: tensor }); 
+                        const output = results[Object.keys(results)[0]].data; 
+                        
+                        let rawBoxes = [];
+                        const numBoxes = 8400; 
+                        const numClasses = 80;
+
+                        for (let i = 0; i < numBoxes; i++) {
+                            let maxConf = 0;
+                            let classId = -1;
+                            
+                            for (let c = 0; c < numClasses; c++) {
+                                const conf = output[(4 + c) * numBoxes + i];
+                                if (conf > maxConf) {
+                                    maxConf = conf;
+                                    classId = c;
+                                }
+                            }
+
+                            if (maxConf > 0.50) {
+                                const xc = output[0 * numBoxes + i];
+                                const yc = output[1 * numBoxes + i];
+                                const w = output[2 * numBoxes + i];
+                                const h = output[3 * numBoxes + i];
+
+                                rawBoxes.push({
+                                    x: xc - w / 2,
+                                    y: yc - h / 2,
+                                    w: w,
+                                    h: h,
+                                    confidence: maxConf,
+                                    classId: classId
+                                });
+                            }
+                        }
+
+                        const finalBoxes = nms(rawBoxes, 0.45);
+                        
+                        // Reiniciamos los contadores en cada fotograma
+                        currentPersonCount = 0;
+                        isPhoneDetected = false;
+
+                        // 4. Invertir las matemáticas para dibujar sobre el canvas original
+                        finalBoxes.forEach(box => {
+                            // Clases 0 (Persona) y 67 (Celular - crítico para el proctoring)
+                            if (box.classId === 0 || box.classId === 67) { 
+                                
+                                // --- NUEVO: Registrar detecciones para el motor de reglas ---
+                                if (box.classId === 0) currentPersonCount++;
+                                if (box.classId === 67) isPhoneDetected = true;
+                                // -------------------------------------------------------------
+                                
+                                // Quitamos el padding y dividimos entre la escala 
+                                // para regresar al tamaño exacto de la cámara web original
+                                const unpaddedX = (box.x - padX) / scale;
+                                const unpaddedY = (box.y - padY) / scale;
+                                const unpaddedW = box.w / scale;
+                                const unpaddedH = box.h / scale;
+
+                                canvasCtx.strokeStyle = box.classId === 67 ? '#FF0000' : '#00FF00';
+                                canvasCtx.lineWidth = 3;
+                                canvasCtx.strokeRect(unpaddedX, unpaddedY, unpaddedW, unpaddedH);
+
+                                canvasCtx.fillStyle = box.classId === 67 ? '#FF0000' : '#00FF00';
+                                canvasCtx.font = "18px monospace";
+                                
+                                // Tu truco brillante para dibujar texto derecho en un canvas espejeado
+                                canvasCtx.save();
+                                canvasCtx.translate(unpaddedX + unpaddedW, unpaddedY);
+                                canvasCtx.scale(-1, 1);
+                                const label = `${classNames[box.classId] || 'Obj'} ${Math.round(box.confidence * 100)}%`;
+                                canvasCtx.fillText(label, 0, -5);
+                                canvasCtx.restore();
+                            }
+                        });
+                    } catch (error) {
+                        console.error("Error YOLOv8:", error);
+                    }
+                }
+                // ========================================================
+
+                // Ejecutar inferencia de MediaPipe
+                if (faceLandmarker) {
+                    const results = faceLandmarker.detectForVideo(video, startTimeMs);
+
+                    // Dibujar la topología facial si se detecta un rostro
+                    if (results.faceLandmarks) {
+                        const drawingUtils = new DrawingUtils(canvasCtx);
+                        for (const landmarks of results.faceLandmarks) {
+                            
+                            // Malla general (gris tenue)
+                            drawingUtils.drawConnectors(
+                                landmarks,
+                                FaceLandmarker.FACE_LANDMARKS_TESSELATION,
+                                { color: "#C0C0C040", lineWidth: 1 }
+                            );
+                            
+                            // Resaltar Ojo Derecho (Crítico para proctoring)
+                            drawingUtils.drawConnectors(
+                                landmarks,
+                                FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
+                                { color: "#00FF00", lineWidth: 2 }
+                            );
+                            
+                            // Resaltar Ojo Izquierdo
+                            drawingUtils.drawConnectors(
+                                landmarks,
+                                FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
+                                { color: "#00FF00", lineWidth: 2 }
+                            );
+
+                            // ========================================================
+                            // INYECCIÓN: MATEMÁTICAS DE LA MIRADA (HEAD POSE)
+                            // ========================================================
+                            
+                            // Obtenemos dimensiones reales del canvas para calcular los ángulos correctamente
+                            const w = canvasElement.width;
+                            const h = canvasElement.height;
+
+                            // Extraemos nodos clave de la malla 3D
+                            const leftEye = landmarks[33];
+                            const rightEye = landmarks[263];
+                            const topHead = landmarks[10];
+                            const bottomChin = landmarks[152];
+
+                            // 1. Calcular YAW (Izquierda / Derecha)
+                            // Medimos la diferencia de profundidad (Z) entre los ojos
+                            const deltaX_yaw = (rightEye.x - leftEye.x) * w;
+                            const deltaZ_yaw = (rightEye.z - leftEye.z) * w; // Z escala aprox con el ancho
+                            const yaw = Math.atan2(deltaZ_yaw, deltaX_yaw) * (180 / Math.PI);
+
+                            // 2. Calcular PITCH (Arriba / Abajo)
+                            // Medimos la diferencia de profundidad (Z) entre la frente y la barbilla
+                            const deltaY_pitch = (bottomChin.y - topHead.y) * h;
+                            const deltaZ_pitch = (bottomChin.z - topHead.z) * w; 
+                            // Nota técnica: MediaPipe invierte el eje Y, ajustamos restando de 0
+                            const pitch = (Math.atan2(deltaZ_pitch, deltaY_pitch) * (180 / Math.PI)) + 13; 
+
+                            // ========================================================
+                            // INYECCIÓN: MOTOR DE REGLAS Y TEMPORIZADOR CONTINUO
+                            // ========================================================
+                            let activeViolation = null;
+
+                            // 1. Jerarquía de Infracciones (YOLO tiene prioridad)
+                            if (isPhoneDetected) {
+                                activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
+                            } else if (currentPersonCount > 1) {
+                                activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
+                            } else if (currentPersonCount === 0) {
+                                activeViolation = "ESTUDIANTE AUSENTE";
+                            } 
+                            // Si YOLO está limpio, evaluamos el comportamiento de la cabeza (MediaPipe)
+                            else if (yaw > 15 || yaw < -15) {
+                                activeViolation = "MIRADA DESVIADA (LADOS)";
+                            } else if (pitch > 15) { // Asumiendo que tu pitch ya está calibrado
+                                activeViolation = "MIRADA DESVIADA (ABAJO)";
+                            }
+
+                            // 2. Lógica del Cronómetro y Envío
+                            const currentTimeMs = performance.now();
+                            let statusColor = "#00FF00";
+                            let statusText = "Supervisión Activa (OK)";
+
+                            if (activeViolation) {
+                                if (infractionStartMs === 0) {
+                                    // Inicia la infracción
+                                    infractionStartMs = currentTimeMs;
+                                    currentInfraction = activeViolation;
+                                    alertaEnviada = false; // RESETEAMOS EL CANDADO
+                                    statusColor = "#FFFF00"; 
+                                    statusText = `Evaluando: ${currentInfraction}...`;
+                                } else {
+                                    const elapsedSeconds = (currentTimeMs - infractionStartMs) / 1000;
+                                    
+                                    if (elapsedSeconds >= 3.0) {
+                                        statusColor = "#FF0000"; 
+                                        statusText = `🚨 INFRACCIÓN: ${currentInfraction}`;
+                                        
+                                        // --- EL CANDADO BOOLEANO ---
+                                        if (!alertaEnviada) {
+                                            // Cerramos el candado inmediatamente para no repetir la llamada
+                                            alertaEnviada = true; 
+                                            
+                                            // Disparamos la función sin ponerle "await" para no frenar los FPS
+                                            registrarInfraccionDB(
+                                                currentInfraction, 
+                                                elapsedSeconds, 
+                                                yaw, pitch, currentPersonCount, isPhoneDetected
+                                            );
+                                        }
+                                        // ----------------------------
+
+                                    } else {
+                                        statusColor = "#FFFF00";
+                                        statusText = `⚠️ Advertencia: ${currentInfraction} (${elapsedSeconds.toFixed(1)}s)`;
+                                    }
+                                }
+                            } else {
+                                // El estudiante volvió a la normalidad
+                                infractionStartMs = 0;
+                                currentInfraction = null;
+                                alertaEnviada = false; // ABRIMOS EL CANDADO para futuras infracciones
+                            }
+
+                            // 3. Imprimir el estado del Motor de Reglas en pantalla
+                            canvasCtx.fillStyle = statusColor;
+                            canvasCtx.font = "bold 20px monospace";
+                            canvasCtx.save();
+                            canvasCtx.translate(w, 0); // Ajuste por el scaleX(-1) de CSS
+                            canvasCtx.scale(-1, 1);
+                            canvasCtx.fillText(statusText, 20, 40);
+                            
+                            // Imprimir telemetría para depuración
+                            canvasCtx.font = "14px monospace";
+                            canvasCtx.fillStyle = "#FFFFFF";
+                            canvasCtx.fillText(`Yaw: ${yaw.toFixed(1)}° | Pitch: ${pitch.toFixed(1)}°`, 20, 70);
+                            canvasCtx.fillText(`Personas: ${currentPersonCount} | Celular: ${isPhoneDetected ? 'SI' : 'NO'}`, 20, 90);
+                            canvasCtx.restore();
+                            // ========================================================
+                        }
+                    }
+                }
+            }
+            
+            // Ciclo infinito sincronizado con la tasa de refresco del monitor
+            window.requestAnimationFrame(predictWebcam);
+        }
+
+        // Ejecutar
+        initializeAI();
+    </script>
+</body>
+</html>

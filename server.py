@@ -9,6 +9,10 @@ from flask_cors import CORS
 from logic import ProctorVision
 from dotenv import load_dotenv
 import mercadopago
+from concurrent.futures import ThreadPoolExecutor
+
+# Activamos un pool de hilos para aprovechar el hardware al máximo
+executor = ThreadPoolExecutor(max_workers=4)
 
 load_dotenv()
 
@@ -16,8 +20,11 @@ app = Flask(__name__)
 # Esto le dice a Python que acepte el tráfico de cualquier dominio
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Inicializa Mercado Pago con tu Access Token de Producción
-sdk = mercadopago.SDK("APP_USR-2799377136698972-071400-bc05d85d92beca01572b91e15db1703c-1986408007")
+# Obtenemos el token de forma segura
+MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
+if not MP_ACCESS_TOKEN:
+    raise ValueError("Token de Mercado Pago no configurado en el entorno")
+sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
 
 # ── Motor de inferencia YOLO ──────────────────────────────────────────────────
 proctor = ProctorVision()
@@ -41,6 +48,27 @@ else:
 
 
 # ── Endpoint: Inferencia de frames YOLO ──────────────────────────────────────
+def procesar_imagen_pesada(base64_str):
+    """ Función que decodifica y analiza la imagen en un hilo secundario """
+    img_data = base64.b64decode(base64_str)
+    nparr = np.frombuffer(img_data, np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        raise ValueError("Invalid image format")
+
+    report = proctor.analyze_frame(frame)
+    
+    detections = []
+    if report and report.objects:
+        for box in report.objects.yolo_boxes:
+            detections.append({
+                'class': box['name'].lower(),
+                'confidence': box['conf'],
+                'bbox': box['box']
+            })
+    return detections
+
 @app.route('/api/analyze-frame', methods=['POST'])
 @app.route('/api/predict_frame', methods=['POST'])
 def analyze_frame():
@@ -53,23 +81,9 @@ def analyze_frame():
         if ',' in base64_str:
             base64_str = base64_str.split(',')[1]
         
-        img_data = base64.b64decode(base64_str)
-        nparr = np.frombuffer(img_data, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        if frame is None:
-            return jsonify({'error': 'Invalid image format'}), 400
-
-        report = proctor.analyze_frame(frame)
-        
-        detections = []
-        if report and report.objects:
-            for box in report.objects.yolo_boxes:
-                detections.append({
-                    'class': box['name'].lower(),
-                    'confidence': box['conf'],
-                    'bbox': box['box']
-                })
+        # Delegamos la tarea pesada a los hilos de fondo
+        future = executor.submit(procesar_imagen_pesada, base64_str)
+        detections = future.result()
         
         return jsonify({'detections': detections, 'status': 'success'})
         
@@ -221,14 +235,13 @@ def crear_campus():
         return jsonify({"error": "Backend no configurado: falta SUPABASE_SERVICE_KEY en .env"}), 503
 
     # 3. Guardia de Mercado Pago: verificar que el pago sea real y esté aprobado
-    # --- BYPASS TEMPORAL ---
-    # try:
-    #     pago_info = sdk.payment().get(payment_id)
-    #     if pago_info["response"]["status"] != "approved":
-    #         return jsonify({"error": "El pago no está aprobado o es inválido"}), 400
-    # except Exception as e:
-    #     print(f"[crear-campus] Error consultando MP: {e}")
-    #     return jsonify({"error": "No se pudo validar el pago con Mercado Pago"}), 500
+    try:
+        pago_info = sdk.payment().get(payment_id)
+        if pago_info["response"]["status"] != "approved":
+            return jsonify({"error": "El pago no está aprobado o es inválido"}), 400
+    except Exception as e:
+        print(f"[crear-campus] Error consultando MP: {e}")
+        return jsonify({"error": "No se pudo validar el pago con Mercado Pago"}), 500
 
     # 4. Registrar Universidad en Supabase y capturar su ID generado
     try:
