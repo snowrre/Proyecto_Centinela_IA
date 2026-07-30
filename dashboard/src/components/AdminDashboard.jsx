@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase';
 import Swal from 'sweetalert2';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-
+import { SubmissionCard } from './SubmissionCard';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -1172,63 +1172,14 @@ export default function AdminDashboard({ darkMode }) {
             <div className={cn("rounded-[40px] border overflow-hidden", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-xl")}>
                 <div className="p-8 space-y-4">
                     {submissions.filter(sub => String(sub.exam_pin) === String(filterPin)).map(sub => (
-                        <div key={sub.id} className={cn("p-6 rounded-[28px] border-2 transition-all flex flex-col gap-4", darkMode ? "bg-white/5 border-white/5" : "bg-neutral-50 border-neutral-100")}>
-                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                                <div>
-                                    <h5 className="text-sm font-black uppercase">{sub.student_name}</h5>
-                                    <p className="text-[10px] font-bold text-neutral-400 mt-1">Enviado: {new Date(sub.created_at).toLocaleTimeString()}</p>
-                                </div>
-                                <div className="flex flex-wrap gap-2 items-center">
-                                    <button 
-                                      onClick={() => handleSegundaOportunidad(sub.id)}
-                                      className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-500/20 transition-colors"
-                                    >
-                                      Borrar (2da Op.)
-                                    </button>
-                                    <div className={cn("px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border flex items-center gap-1", sub.estado_calificacion === 'pendiente_revision' ? "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30")}>
-                                        {sub.estado_calificacion === 'pendiente_revision' ? '🟡 Pendiente' : '🟢 Calificado'}
-                                    </div>
-                                    <div className="px-4 py-1.5 bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-xl text-[12px] font-black uppercase tracking-widest border border-blue-600/20">
-                                        {sub.score !== undefined && sub.score !== null ? `Pts: ${sub.score}/100` : 'Pts: ?/100'}
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            {/* Interfaz de Revisión Manual Híbrida */}
-                            {sub.estado_calificacion === 'pendiente_revision' && (
-                                <div className="mt-2 p-4 rounded-xl border border-yellow-500/30 bg-yellow-500/5">
-                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                        <p className="text-[11px] font-bold text-yellow-700 dark:text-yellow-400 uppercase tracking-widest">Requiere revisión manual del profesor</p>
-                                        <button 
-                                            onClick={() => {
-                                                const newScoreStr = window.prompt(`Ingresa la calificación final para ${sub.student_name} (0-100):`, sub.score || "0");
-                                                if (newScoreStr !== null && !isNaN(parseInt(newScoreStr))) {
-                                                    const feedback = window.prompt("Comentarios para el alumno (opcional):", sub.feedback_profesor || "");
-                                                    handleUpdateScore(sub.id, parseInt(newScoreStr), feedback || "");
-                                                }
-                                            }}
-                                            className="px-4 py-2 bg-yellow-500 text-black font-black text-[10px] uppercase tracking-widest rounded-lg hover:bg-yellow-400 transition-colors shadow-lg shadow-yellow-500/20"
-                                        >
-                                            Calificar Ahora
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Desglose de respuestas */}
-                            {sub.answers && (
-                                <div className="mt-2 p-4 bg-black/5 dark:bg-black/20 rounded-2xl">
-                                    <p className="text-[10px] font-bold text-neutral-500 uppercase mb-3">Desglose de Respuestas:</p>
-                                    <div className="flex flex-wrap gap-2">
-                                        {Object.entries(sub.answers).map(([qId, ans]) => (
-                                            <span key={qId} className="px-3 py-1.5 bg-white dark:bg-[#111] rounded-lg text-[10px] font-black border dark:border-white/10 uppercase">
-                                                {typeof ans === 'object' ? ans.text : ans}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                        <SubmissionCard 
+                            key={sub.id} 
+                            submission={sub} 
+                            examId={activeExams.find(e => String(e.pin_sala) === String(filterPin))?.id}
+                            onSegundaOportunidad={handleSegundaOportunidad} 
+                            onUpdateScore={handleUpdateScore} 
+                            darkMode={darkMode} 
+                        />
                     ))}
                     {submissions.filter(sub => String(sub.exam_pin) === String(filterPin)).length === 0 && (
                         <div className="flex flex-col items-center justify-center opacity-40 py-10">
