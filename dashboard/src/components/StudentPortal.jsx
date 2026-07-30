@@ -172,15 +172,16 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
         return;
       }
 
-      // Candado Anti-Intentos Múltiples: Bloquear si ya entregó el examen
-      const { data: previousSubmission } = await supabase
+      // 🔒 Candado Anti-Intentos Múltiples CORREGIDO 🔒
+      const { data: previousSubmissions, error: subError } = await supabase
         .from('exam_submissions')
         .select('id')
         .eq('exam_pin', currentPin)
-        .eq('student_name', String(studentData?.matricula))
-        .maybeSingle();
+        // Buscamos a dos bandas: por si el sistema guardó la matrícula o el nombre
+        .or(`student_name.eq.${studentData?.matricula},student_name.eq."${studentData?.nombre_completo}"`)
+        .limit(1); // Evita el colapso si hay múltiples entregas de prueba
 
-      if (previousSubmission) {
+      if (previousSubmissions && previousSubmissions.length > 0) {
         alert("Ya has completado y entregado este examen. No se permiten intentos adicionales.");
         exitPortal();
         return;
