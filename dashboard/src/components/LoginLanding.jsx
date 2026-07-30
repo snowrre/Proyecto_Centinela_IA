@@ -127,7 +127,22 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
             throw new Error('El correo no coincide con la matrícula ingresada.');
           }
 
-          // Registrar sesión en exam_sessions
+          // 🔒 NUEVO CANDADO EN LA PUERTA PRINCIPAL 🔒
+          // Revisar de quién es el examen antes de dejarla registrar su sesión en la base de datos
+          const { data: examData, error: examError } = await supabase.from('exams')
+            .select('id_universidad')
+            .eq('pin_sala', roomCode)
+            .maybeSingle();
+
+          if (examError || !examData) {
+            throw new Error('El PIN de la sala no existe.');
+          }
+
+          if (examData.id_universidad !== alumnoData.id_universidad) {
+            throw new Error('Acceso denegado: Este examen pertenece a otra institución.');
+          }
+
+          // Registrar sesión en exam_sessions (Ahora el proceso es 100% seguro)
           const { error: sessionError } = await supabase.from('exam_sessions').insert([{
             pin_sala: roomCode,
             student_name: alumnoData.nombre_completo,
