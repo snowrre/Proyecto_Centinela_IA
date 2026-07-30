@@ -144,7 +144,8 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
               email: alumnoData.correo,
               matricula: alumnoData.matricula,
               nombre_completo: alumnoData.nombre_completo,
-              roomCode: roomCode
+              roomCode: roomCode,
+              id_universidad: alumnoData.id_universidad
             });
           }
         }

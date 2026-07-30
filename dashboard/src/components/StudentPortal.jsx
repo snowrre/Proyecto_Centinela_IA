@@ -168,9 +168,14 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
         .from('exams')
         .select('*')
         .eq('pin_sala', currentPin)
+        .eq('id_universidad', studentData?.id_universidad)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error || !dbExam) {
+        alert("Acceso denegado: El PIN es incorrecto o pertenece a otra institución.");
+        exitPortal();
+        return;
+      }
       
       if (dbExam) {
         if (dbExam.tipo === 'externo') {
