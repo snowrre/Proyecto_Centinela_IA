@@ -165,6 +165,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       if (!currentPin) return;
 
       // Candado Anti-Trampa: Bloquear sesiones cacheadas sin universidad
+      console.log("Datos de Montse:", studentData);
       if (!studentData?.id_universidad) {
         alert("Sesión inválida o caducada. Por favor, vuelve a iniciar sesión en el portal.");
         exitPortal();
