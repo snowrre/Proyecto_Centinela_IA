@@ -172,6 +172,20 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
         return;
       }
 
+      // Candado Anti-Intentos Múltiples: Bloquear si ya entregó el examen
+      const { data: previousSubmission } = await supabase
+        .from('exam_submissions')
+        .select('id')
+        .eq('exam_pin', currentPin)
+        .eq('student_name', String(studentData?.matricula))
+        .maybeSingle();
+
+      if (previousSubmission) {
+        alert("Ya has completado y entregado este examen. No se permiten intentos adicionales.");
+        exitPortal();
+        return;
+      }
+
       const { data: dbExam, error } = await supabase
         .from('exams')
         .select('*')
@@ -473,41 +487,68 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       
       const resolvedPin = formData.pin || studentData?.pin || studentData?.roomCode || '';
       
-      // ── NUEVA ARQUITECTURA: Calificación 100% Local (Edge Computing) ──
-      // Obtenemos las respuestas de exam_answers y calificamos localmente.
+      // ── NUEVA ARQUITECTURA: Calificación Híbrida Local (Edge Computing) ──
       let calculatedScore = null;
-      try {
-        const { data: answerData, error: answerError } = await supabase
-          .from('exam_answers')
-          .select('correct_options')
-          .eq('pin', resolvedPin)
-          .maybeSingle();
+      let tienePreguntasAbiertas = false;
+      let puntajeParcial = 0;
 
-        if (!answerData) {
-            console.error("No se encontraron las respuestas maestras para este examen en la base de datos.");
-        } else if (answerData.correct_options) {
-          const correctOptions = answerData.correct_options;
-          const total = Object.keys(correctOptions).length;
-          let correctas = 0;
-          for (const key in correctOptions) {
-            if (correctOptions[key] === selectedAnswers[key]) {
-              correctas++;
+      if (examData?.preguntas && examData.preguntas.length > 0) {
+        let maxPuntosMultiples = 0;
+        
+        examData.preguntas.forEach((pregunta, index) => {
+          // Detectar si la pregunta es abierta (por la propiedad o por no tener opciones)
+          if (pregunta.tipo_pregunta === 'abierta' || !pregunta.options || pregunta.options.length === 0) {
+            tienePreguntasAbiertas = true;
+          } else {
+            const valor = parseFloat(pregunta.valor_puntos) || 1;
+            maxPuntosMultiples += valor;
+            
+            const respuestaSeleccionada = selectedAnswers[index];
+            const opcionCorrecta = pregunta.options.find(opt => opt.es_correcta === true);
+            
+            if (opcionCorrecta && respuestaSeleccionada === opcionCorrecta.id) {
+              puntajeParcial += valor;
             }
           }
-          if (total > 0) {
-            calculatedScore = Math.round((correctas / total) * 100);
-          }
+        });
+
+        // Guardamos el porcentaje preliminar basado solo en las de opción múltiple
+        if (maxPuntosMultiples > 0) {
+          calculatedScore = Math.round((puntajeParcial / maxPuntosMultiples) * 100);
+        } else {
+          calculatedScore = 0; // Puras preguntas abiertas
         }
-      } catch (gradeErr) {
-        // DB no disponible o RLS bloqueado — score queda null
-        console.warn('[Centinela] No se pudo calificar localmente:', gradeErr);
+      } else {
+        // Fallback a lógica Legacy (exam_answers)
+        try {
+          const { data: answerData } = await supabase
+            .from('exam_answers')
+            .select('correct_options')
+            .eq('pin', resolvedPin)
+            .maybeSingle();
+
+          if (answerData?.correct_options) {
+            const correctOptions = answerData.correct_options;
+            const total = Object.keys(correctOptions).length;
+            let correctas = 0;
+            for (const key in correctOptions) {
+              if (correctOptions[key] === selectedAnswers[key]) {
+                correctas++;
+              }
+            }
+            if (total > 0) calculatedScore = Math.round((correctas / total) * 100);
+          }
+        } catch (gradeErr) {
+          console.warn('[Centinela] Fallo fallback de calificación:', gradeErr);
+        }
       }
 
       const submission = {
         exam_pin: String(resolvedPin),
         student_name: String(formData.matricula || studentData?.matricula || "Desconocido"),
         answers: selectedAnswers,
-        score: calculatedScore  // null si el backend no respondió
+        score: calculatedScore,
+        estado_calificacion: tienePreguntasAbiertas ? 'pendiente_revision' : 'calificado'
       };
       
       const { error } = await supabase.from('exam_submissions').insert([submission]);
