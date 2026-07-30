@@ -83,26 +83,43 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
     }
   };
 
-  // Cálculo en Tiempo Real
-  const puntosAbiertasTotales = Object.values(puntosAbiertas).reduce((a, b) => a + b, 0);
-  const puntosGanados = puntosMultiplesGanados + puntosAbiertasTotales;
-  const porcentaje = totalPuntosMaximos > 0 ? Math.round((puntosGanados / totalPuntosMaximos) * 100) : (submission.score || 0);
+  // Inicialización desde la base de datos
+  const [puntajeTotal, setPuntajeTotal] = useState(submission?.score || 0);
 
   const calificarPreguntaAbierta = async (idPregunta, valorPuntos, esCorrecto) => {
-    const puntosAAgregar = esCorrecto ? valorPuntos : 0;
+    // 1. Definimos los puntos (valorPuntos o 0)
+    const puntosAsignados = esCorrecto ? valorPuntos : 0;
     
-    // Actualizamos el estado matemático local
+    // 2. Actualizamos la pantalla de inmediato (Visual - Historial)
     setPuntosAbiertas(prev => ({
       ...prev,
-      [idPregunta]: puntosAAgregar
+      [idPregunta]: puntosAsignados
     }));
     
-    // Recalcular para guardar en BD de inmediato
-    const nuevasAbiertasTotales = Object.entries({...puntosAbiertas, [idPregunta]: puntosAAgregar}).reduce((acc, [k,v]) => acc + v, 0);
-    const nuevoTotal = puntosMultiplesGanados + nuevasAbiertasTotales;
+    // 3. Calculamos el total de puntos que va a tener el alumno
+    // Sumamos lo que sacó en las múltiples + lo que ya lleva de abiertas (excluyendo esta para reemplazarla)
+    const otrasAbiertas = Object.entries(puntosAbiertas)
+      .filter(([k]) => k !== idPregunta)
+      .reduce((acc, [, v]) => acc + v, 0);
+      
+    const nuevoTotal = puntosMultiplesGanados + otrasAbiertas + puntosAsignados;
     const nuevoPorcentaje = totalPuntosMaximos > 0 ? Math.round((nuevoTotal / totalPuntosMaximos) * 100) : 0;
 
-    await onUpdateScore(submission.id, nuevoPorcentaje, "");
+    setPuntajeTotal(nuevoPorcentaje); // Actualizar UI en vivo
+
+    // 4. EL CÓDIGO FALTANTE: Guardar definitivamente en Supabase
+    const { error } = await supabase
+      .from('exam_submissions')
+      .update({ 
+        score: nuevoPorcentaje, 
+        estado_calificacion: 'calificado' 
+      })
+      .eq('id', submission.id);
+
+    if (error) {
+      console.error("Error guardando calificación:", error);
+      alert("Hubo un error al guardar en la base de datos.");
+    }
   };
 
   return (
@@ -128,7 +145,7 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
           </span>
           
           <span className="font-bold text-blue-700 bg-blue-50 border border-blue-200 px-4 py-1.5 rounded-lg text-sm">
-            PTS: {detallesExamen.length > 0 ? `${puntosGanados}/${totalPuntosMaximos}` : (submission.score || 0)} ({porcentaje}%)
+            PTS: {puntajeTotal}%
           </span>
           
           <button 

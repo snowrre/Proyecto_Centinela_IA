@@ -306,7 +306,11 @@ export default function AdminDashboard({ darkMode }) {
     setDeletingPin(null);
 
     try {
-      // 1. Ejecuta la promesa primero. Bloqueo de actualización optimista.
+      // 1. Primero aniquilamos los resultados y logs huérfanos usando el PIN (Hijos)
+      await supabase.from('camera_logs').delete().eq('pin_sala', pinToDelete);
+      await supabase.from('exam_submissions').delete().eq('exam_pin', pinToDelete);
+
+      // 2. Una vez limpia la sala, borramos el examen (Padre)
       const { error } = await supabase.from('exams').delete().eq('pin_sala', pinToDelete);
       
       if (error) {
@@ -314,10 +318,6 @@ export default function AdminDashboard({ darkMode }) {
         showToast('Error al eliminar. Revisa la consola.', 'error');
         return;
       }
-
-      // Borrar de forma asíncrona de otras tablas si la principal tuvo éxito
-      await supabase.from('camera_logs').delete().eq('pin_sala', pinToDelete);
-      await supabase.from('exam_submissions').delete().eq('exam_pin', pinToDelete);
 
       // SOLO si no hay error, actualizar el estado
       setActiveExams(prev => prev.filter(exam =>
