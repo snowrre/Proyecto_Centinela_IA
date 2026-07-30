@@ -235,13 +235,25 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
       // 0. IDENTIFICAR AL PROFESOR ACTUAL
       const { data: { user } } = await supabase.auth.getUser();
       const idProfesorActual = user ? user.id : 'admin-bypass'; // Fallback para modo demo
+      
+      // Consultar la universidad del profesor
+      let idUniversidadActual = null;
+      if (user) {
+        const { data: userData } = await supabase
+          .from('usuarios')
+          .select('id_universidad')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (userData) idUniversidadActual = userData.id_universidad;
+      }
 
       // 1. Guardar el examen en el nuevo esquema híbrido
       const datosDelExamen = {
         titulo: examTitle,
         tipo: 'nativo',
         pin_sala: generatedPin,
-        id_profesor: idProfesorActual // ✅ Enlace maestro establecido
+        id_profesor: idProfesorActual, // ✅ Enlace maestro establecido
+        id_universidad: idUniversidadActual // ✅ Aislamiento Cross-Tenant establecido
       };
 
       const { data: examData, error: examError } = await supabase
@@ -296,12 +308,24 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
       const { data: { user } } = await supabase.auth.getUser();
       const idProfesorActual = user ? user.id : 'admin-bypass'; // Fallback para modo demo
 
+      // Consultar la universidad del profesor
+      let idUniversidadActual = null;
+      if (user) {
+        const { data: userData } = await supabase
+          .from('usuarios')
+          .select('id_universidad')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (userData) idUniversidadActual = userData.id_universidad;
+      }
+
       const datosDelExamen = {
         titulo: examTitle,
         tipo: 'externo',
         pin_sala: generatedPin,
         url_formulario: externalLink.trim(),
-        id_profesor: idProfesorActual // ✅ Enlace maestro establecido
+        id_profesor: idProfesorActual, // ✅ Enlace maestro establecido
+        id_universidad: idUniversidadActual // ✅ Aislamiento Cross-Tenant establecido
       };
 
       const { error } = await supabase
