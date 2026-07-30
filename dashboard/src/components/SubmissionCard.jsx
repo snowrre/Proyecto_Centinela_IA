@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 // redefinimos cx aquí para evitar problemas
 import { clsx } from 'clsx';
@@ -13,8 +13,10 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
   const [detallesExamen, setDetallesExamen] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Puntaje total visual en vivo, inicializado con el de la DB
-  const [puntajeTotal, setPuntajeTotal] = useState(submission.score || 0);
+  // Estados matemáticos
+  const [puntosMultiplesGanados, setPuntosMultiplesGanados] = useState(0);
+  const [totalPuntosMaximos, setTotalPuntosMaximos] = useState(0);
+  const [puntosAbiertas, setPuntosAbiertas] = useState({}); // { [pregunta_id]: puntos }
 
   useEffect(() => {
     if (isOpen && detallesExamen.length === 0) {
@@ -25,8 +27,6 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
   const cargarDatosCompletos = async () => {
     setLoading(true);
     try {
-      // 1. Traer preguntas nativas con sus opciones
-      // El examId lo obtenemos del AdminDashboard o de la misma submission si es posible
       if (!examId) return;
 
       const { data: preguntas, error: errorP } = await supabase
@@ -35,15 +35,15 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
         .eq('exam_id', examId);
         
       if (errorP) throw errorP;
-
-      // 2. Cruzar con las respuestas del alumno (submission.answers)
-      // En submission.answers tenemos { [index_pregunta]: id_opcion_o_texto }
-      // Pero no tenemos el ID real de la pregunta en la respuesta, sino el índice.
-      // Así que usamos el mismo orden (index).
       
+      let sumPuntosMultiples = 0;
+      let sumPuntosMax = 0;
+
       const detallesCruzados = preguntas.map((q, index) => {
         const respuestaAlumno = submission.answers ? submission.answers[index] : null;
         const esMultiple = q.tipo_pregunta === 'opcion_multiple';
+        const valorPts = parseFloat(q.valor_puntos) || 1;
+        sumPuntosMax += valorPts;
         
         let correcta = false;
         let opcionCorrectaTexto = null;
@@ -58,6 +58,7 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
           
           if (optCorrecta && respuestaAlumno === optCorrecta.id) {
             correcta = true;
+            sumPuntosMultiples += valorPts;
           }
         }
 
@@ -65,14 +66,15 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
           ...q,
           index,
           esMultiple,
+          valorPts,
           respuestaAlumnoTexto,
           opcionCorrectaTexto,
           esCorrectoAuto: correcta,
-          // Guardaremos si ya fue calificada manualmente en el feedback del profe
-          // Pero por ahora lo dejamos simple.
         };
       });
 
+      setPuntosMultiplesGanados(sumPuntosMultiples);
+      setTotalPuntosMaximos(sumPuntosMax);
       setDetallesExamen(detallesCruzados);
     } catch (err) {
       console.error("Error cargando detalles del examen:", err);
@@ -81,116 +83,136 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
     }
   };
 
-  const calificarPreguntaAbierta = async (valorPuntos, esCorrecto) => {
-    const puntosAAgregar = esCorrecto ? (valorPuntos || 1) : 0;
-    const nuevoScore = puntajeTotal + puntosAAgregar;
+  // Cálculo en Tiempo Real
+  const puntosAbiertasTotales = Object.values(puntosAbiertas).reduce((a, b) => a + b, 0);
+  const puntosGanados = puntosMultiplesGanados + puntosAbiertasTotales;
+  const porcentaje = totalPuntosMaximos > 0 ? Math.round((puntosGanados / totalPuntosMaximos) * 100) : (submission.score || 0);
+
+  const calificarPreguntaAbierta = async (idPregunta, valorPuntos, esCorrecto) => {
+    const puntosAAgregar = esCorrecto ? valorPuntos : 0;
     
-    // Llamar a la función principal de actualización en AdminDashboard
-    await onUpdateScore(submission.id, nuevoScore, "");
+    // Actualizamos el estado matemático local
+    setPuntosAbiertas(prev => ({
+      ...prev,
+      [idPregunta]: puntosAAgregar
+    }));
     
-    setPuntajeTotal(nuevoScore);
-    alert(`Pregunta calificada como ${esCorrecto ? 'Correcta' : 'Incorrecta'}`);
+    // Recalcular para guardar en BD de inmediato
+    const nuevasAbiertasTotales = Object.entries({...puntosAbiertas, [idPregunta]: puntosAAgregar}).reduce((acc, [k,v]) => acc + v, 0);
+    const nuevoTotal = puntosMultiplesGanados + nuevasAbiertasTotales;
+    const nuevoPorcentaje = totalPuntosMaximos > 0 ? Math.round((nuevoTotal / totalPuntosMaximos) * 100) : 0;
+
+    await onUpdateScore(submission.id, nuevoPorcentaje, "");
   };
 
   return (
-    <div className={cx("border rounded-[28px] overflow-hidden mb-4 shadow-sm transition-colors", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
-      {/* CABECERA */}
-      <div className={cx("p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b", darkMode ? "bg-white/5 border-white/5" : "bg-neutral-50 border-neutral-100")}>
+    <div className={cx("bg-white border rounded-xl shadow-sm mb-4 overflow-hidden transition-all", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-gray-200")}>
+      
+      {/* CABECERA RESUMEN */}
+      <div className={cx("p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b", darkMode ? "bg-[#161616] border-white/10" : "bg-gray-50 border-gray-100")}>
         <div>
-          <h3 className={cx("text-sm font-black uppercase", darkMode ? "text-white" : "text-gray-900")}>{submission.student_name}</h3>
-          <p className="text-[10px] font-bold text-neutral-400 mt-1">Enviado: {new Date(submission.created_at).toLocaleTimeString()}</p>
+          <h3 className={cx("text-lg font-bold", darkMode ? "text-white" : "text-gray-800")}>{submission.student_name || submission.matricula || 'Desconocido'}</h3>
+          <p className="text-sm text-gray-500">Enviado: {new Date(submission.created_at).toLocaleTimeString()}</p>
         </div>
         
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <button 
             onClick={() => onSegundaOportunidad(submission.id)}
-            className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-500/20 transition-colors"
+            className="text-xs font-bold text-red-500 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition"
           >
-            Borrar (2da Op.)
+            BORRAR (2DA OP.)
           </button>
           
-          <span className={cx("px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border flex items-center gap-1", 
-            submission.estado_calificacion === 'calificado' ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30"
-          )}>
-            {submission.estado_calificacion === 'calificado' ? '🟢 Calificado' : '🟡 Pendiente'}
+          <span className={cx("px-3 py-1.5 rounded-lg text-xs font-bold", submission.estado_calificacion === 'calificado' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>
+            {submission.estado_calificacion === 'calificado' ? '🟢 CALIFICADO' : '🟡 PENDIENTE'}
           </span>
           
-          <span className="px-4 py-1.5 bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-xl text-[12px] font-black uppercase tracking-widest border border-blue-600/20">
-            PTS: {puntajeTotal}
+          <span className="font-bold text-blue-700 bg-blue-50 border border-blue-200 px-4 py-1.5 rounded-lg text-sm">
+            PTS: {detallesExamen.length > 0 ? `${puntosGanados}/${totalPuntosMaximos}` : (submission.score || 0)} ({porcentaje}%)
           </span>
           
           <button 
             onClick={() => setIsOpen(!isOpen)}
-            className={cx("px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition", darkMode ? "bg-white text-black hover:bg-neutral-200" : "bg-neutral-900 text-white hover:bg-neutral-800")}
+            className="bg-gray-900 text-white text-sm font-semibold px-4 py-1.5 rounded-lg hover:bg-gray-800 transition"
           >
-            {isOpen ? 'Ocultar' : 'Ver Respuestas'}
+            {isOpen ? 'OCULTAR' : 'ABRIR'}
           </button>
         </div>
       </div>
 
-      {/* ACORDEÓN DESPLEGABLE */}
+      {/* DESGLOSE DEL EXAMEN (El Acordeón) */}
       {isOpen && (
-        <div className={cx("p-6 space-y-4", darkMode ? "bg-black/20" : "bg-white")}>
+        <div className={cx("p-6 space-y-6", darkMode ? "bg-black" : "bg-white")}>
           {loading ? (
-             <div className="py-6 text-center text-xs font-bold text-neutral-500 uppercase animate-pulse">Cargando respuestas reales...</div>
+             <div className="py-6 text-center text-xs font-bold text-neutral-500 uppercase animate-pulse">Cruzando datos con la base de datos...</div>
           ) : detallesExamen.length > 0 ? (
              detallesExamen.map((q) => (
-                <div key={q.id} className={cx("border rounded-[20px] p-5", darkMode ? "bg-white/5 border-white/5" : "bg-neutral-50 border-neutral-100")}>
+                <div key={q.id} className={cx("border rounded-xl p-5", darkMode ? "bg-white/5 border-white/10" : "bg-white border-gray-200")}>
                   {q.esMultiple ? (
                      <>
                         {/* MÚLTIPLE */}
-                        <div className="flex justify-between items-center mb-3">
-                          <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Opción Múltiple</span>
-                          <span className={cx("text-[10px] font-black uppercase tracking-widest", q.esCorrectoAuto ? "text-emerald-500" : "text-red-500")}>
-                             {q.esCorrectoAuto ? `✅ +${q.valor_puntos || 1} Pt` : '❌ 0 Pts'}
+                        <div className="flex justify-between items-center mb-4">
+                          <span className="text-xs font-bold text-gray-400 tracking-wider">OPCIÓN MÚLTIPLE</span>
+                          <span className={cx("font-extrabold text-sm flex items-center gap-1", q.esCorrectoAuto ? "text-green-600" : "text-red-500")}>
+                             {q.esCorrectoAuto ? `✅ +${q.valorPts} PT` : '❌ 0 PTS'}
                           </span>
                         </div>
-                        <p className={cx("font-bold text-sm mb-4", darkMode ? "text-neutral-200" : "text-neutral-800")}>{q.texto_pregunta}</p>
-                        <div className="space-y-2">
-                          <div className={cx("p-3 rounded-xl text-xs font-bold flex items-start gap-2 border", q.esCorrectoAuto ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-400")}>
-                            <span>{q.esCorrectoAuto ? '✅' : '❌'}</span>
-                            <div>
-                               <span className="block italic text-[10px] uppercase opacity-70 mb-1">Respuesta del alumno:</span>
-                               {q.respuestaAlumnoTexto || "Sin respuesta"}
-                            </div>
-                          </div>
-                          {!q.esCorrectoAuto && (
-                             <div className="p-3 rounded-xl bg-neutral-100 dark:bg-white/5 border border-neutral-200 dark:border-white/5 text-xs font-bold text-neutral-600 dark:text-neutral-400">
-                                <span className="block italic text-[10px] uppercase opacity-70 mb-1">Respuesta correcta:</span>
-                                {q.opcionCorrectaTexto || "Desconocida"}
-                             </div>
-                          )}
+                        <p className={cx("font-semibold mb-4 text-base", darkMode ? "text-white" : "text-gray-800")}>{q.texto_pregunta}</p>
+                        
+                        <div className={cx("p-4 rounded-lg border mb-3", q.esCorrectoAuto ? "bg-green-50/50 border-green-200" : "bg-red-50/50 border-red-200")}>
+                          <p className={cx("text-xs font-bold mb-1", q.esCorrectoAuto ? "text-green-700" : "text-red-700")}>
+                             {q.esCorrectoAuto ? '✅' : '❌'} RESPUESTA DEL ALUMNO:
+                          </p>
+                          <p className={cx("text-sm font-medium", q.esCorrectoAuto ? "text-green-900" : "text-red-900")}>
+                             {q.respuestaAlumnoTexto || "Sin respuesta"}
+                          </p>
                         </div>
+
+                        {!q.esCorrectoAuto && (
+                           <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg dark:bg-white/5 dark:border-white/10">
+                             <p className="text-xs font-bold text-gray-500 mb-1">RESPUESTA CORRECTA ERA:</p>
+                             <p className="text-sm font-medium text-gray-800 dark:text-gray-300">{q.opcionCorrectaTexto || "Desconocida"}</p>
+                           </div>
+                        )}
                      </>
                   ) : (
                      <>
                         {/* ABIERTA */}
-                        <div className="flex justify-between items-center mb-3">
-                          <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Pregunta Abierta</span>
-                          <span className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Por calificar</span>
+                        <div className="flex justify-between items-center mb-4">
+                          <span className="text-xs font-bold text-blue-500 tracking-wider">PREGUNTA ABIERTA</span>
+                          
+                          {puntosAbiertas[q.id] !== undefined ? (
+                            <span className="text-green-600 font-extrabold text-sm flex items-center gap-1">
+                               {puntosAbiertas[q.id] === q.valorPts ? `✅ +${q.valorPts} PT` : '❌ 0 PTS'}
+                            </span>
+                          ) : (
+                            <span className="text-yellow-600 font-extrabold text-sm bg-yellow-100 px-3 py-1 rounded-md">
+                              POR CALIFICAR
+                            </span>
+                          )}
                         </div>
-                        <p className={cx("font-bold text-sm mb-4", darkMode ? "text-neutral-200" : "text-neutral-800")}>{q.texto_pregunta}</p>
-                        <div className={cx("p-4 rounded-xl text-sm italic mb-4 border", darkMode ? "bg-black/50 border-white/10 text-neutral-300" : "bg-white border-neutral-200 text-neutral-700")}>
+                        
+                        <p className={cx("font-semibold mb-4 text-base", darkMode ? "text-white" : "text-gray-800")}>{q.texto_pregunta}</p>
+                        
+                        <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 p-4 rounded-lg text-sm text-gray-700 dark:text-gray-300 mb-5 italic shadow-inner">
                           "{q.respuestaAlumnoTexto || "Sin respuesta"}"
                         </div>
                         
-                        {/* Controles del Profesor */}
-                        {submission.estado_calificacion === 'pendiente_revision' && (
-                           <div className="flex flex-col sm:flex-row gap-2 border-t dark:border-white/5 pt-4 mt-2">
-                             <button 
-                               onClick={() => calificarPreguntaAbierta(q.valor_puntos, true)}
-                               className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest flex-1 transition-colors"
-                             >
-                               ✅ Correcto (+{q.valor_puntos || 1} Pt)
-                             </button>
-                             <button 
-                               onClick={() => calificarPreguntaAbierta(q.valor_puntos, false)}
-                               className="bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 border border-red-500/30 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest flex-1 transition-colors"
-                             >
-                               ❌ Incorrecto (0 Pts)
-                             </button>
-                           </div>
-                        )}
+                        {/* CONTROLES DE CALIFICACIÓN */}
+                        <div className="flex gap-3 border-t border-gray-200 dark:border-white/10 pt-4">
+                          <button 
+                            onClick={() => calificarPreguntaAbierta(q.id, q.valorPts, true)}
+                            className="flex-1 bg-green-100 text-green-700 hover:bg-green-200 hover:text-green-800 py-2.5 rounded-lg font-bold text-sm transition-colors duration-200 border border-green-200"
+                          >
+                            ✅ CORRECTA ({q.valorPts} PT)
+                          </button>
+                          <button 
+                            onClick={() => calificarPreguntaAbierta(q.id, q.valorPts, false)}
+                            className="flex-1 bg-red-100 text-red-700 hover:bg-red-200 hover:text-red-800 py-2.5 rounded-lg font-bold text-sm transition-colors duration-200 border border-red-200"
+                          >
+                            ❌ INCORRECTA (0 PTS)
+                          </button>
+                        </div>
                      </>
                   )}
                 </div>
