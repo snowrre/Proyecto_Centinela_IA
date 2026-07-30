@@ -164,6 +164,13 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       const currentPin = formData.pin || studentData?.roomCode;
       if (!currentPin) return;
 
+      // Candado Anti-Trampa: Bloquear sesiones cacheadas sin universidad
+      if (!studentData?.id_universidad) {
+        alert("Sesión inválida o caducada. Por favor, vuelve a iniciar sesión en el portal.");
+        exitPortal();
+        return;
+      }
+
       const { data: dbExam, error } = await supabase
         .from('exams')
         .select('*')
