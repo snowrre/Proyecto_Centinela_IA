@@ -169,20 +169,25 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       if (!studentData?.id_universidad) {
         alert("Sesión inválida o caducada. Por favor, vuelve a iniciar sesión en el portal.");
         exitPortal();
-        return;
-      }
+      // 🔒 CANDADO ANTI-INTENTOS DEFINITIVO 🔒
+      // 1. Forzamos que tanto la matrícula como el PIN sean texto puro para evitar errores de tipo en Supabase
+      const matriculaString = String(studentData?.matricula);
+      const pinString = String(currentPin);
 
-      // 🔒 Candado Anti-Intentos Múltiples CORREGIDO 🔒
-      const { data: previousSubmissions, error: subError } = await supabase
+      // 2. Buscamos TODOS los registros que coincidan, sin usar .maybeSingle() para evitar que colapse
+      const { data: entregasPrevias, error: errorCandado } = await supabase
         .from('exam_submissions')
         .select('id')
-        .eq('exam_pin', currentPin)
-        // Buscamos a dos bandas: por si el sistema guardó la matrícula o el nombre
-        .or(`student_name.eq.${studentData?.matricula},student_name.eq."${studentData?.nombre_completo}"`)
-        .limit(1); // Evita el colapso si hay múltiples entregas de prueba
+        .eq('exam_pin', pinString)
+        .eq('student_name', matriculaString);
 
-      if (previousSubmissions && previousSubmissions.length > 0) {
-        alert("Ya has completado y entregado este examen. No se permiten intentos adicionales.");
+      if (errorCandado) {
+        console.error("Error revisando el candado:", errorCandado);
+      }
+
+      // 3. Si el arreglo encuentra 1 o más registros, la puerta se cierra automáticamente
+      if (entregasPrevias && entregasPrevias.length > 0) {
+        alert(`Acceso denegado: La matrícula ${matriculaString} ya entregó este examen y no se permiten más intentos.`);
         exitPortal();
         return;
       }
