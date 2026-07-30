@@ -371,6 +371,36 @@ export default function AdminDashboard({ darkMode }) {
     }
   };
 
+  // ── FUNCIONALIDADES HÍBRIDAS: CONTROL DE INTENTOS Y CALIFICACIÓN ──
+  const handleSegundaOportunidad = async (submissionId) => {
+    if (!window.confirm("¿Seguro que deseas borrar esta entrega? El alumno podrá volver a hacer el examen.")) return;
+    try {
+      const { error } = await supabase
+        .from('exam_submissions')
+        .delete()
+        .eq('id', submissionId);
+      if (error) throw error;
+      showToast('Segunda oportunidad habilitada.', 'success');
+      setSubmissions(prev => prev.filter(s => s.id !== submissionId));
+    } catch (err) {
+      showToast('Error al habilitar segunda oportunidad.', 'error');
+    }
+  };
+
+  const handleUpdateScore = async (submissionId, newScore, feedback = "") => {
+    try {
+      const { error } = await supabase
+        .from('exam_submissions')
+        .update({ score: newScore, estado_calificacion: 'calificado', feedback_profesor: feedback })
+        .eq('id', submissionId);
+      if (error) throw error;
+      showToast('Calificación actualizada.', 'success');
+      setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, score: newScore, estado_calificacion: 'calificado', feedback_profesor: feedback } : s));
+    } catch (err) {
+      showToast('Error al actualizar calificación.', 'error');
+    }
+  };
+
   useEffect(() => {
     fetchData();
 
@@ -1143,16 +1173,48 @@ export default function AdminDashboard({ darkMode }) {
                 <div className="p-8 space-y-4">
                     {submissions.filter(sub => String(sub.exam_pin) === String(filterPin)).map(sub => (
                         <div key={sub.id} className={cn("p-6 rounded-[28px] border-2 transition-all flex flex-col gap-4", darkMode ? "bg-white/5 border-white/5" : "bg-neutral-50 border-neutral-100")}>
-                            <div className="flex justify-between items-center">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                                 <div>
                                     <h5 className="text-sm font-black uppercase">{sub.student_name}</h5>
                                     <p className="text-[10px] font-bold text-neutral-400 mt-1">Enviado: {new Date(sub.created_at).toLocaleTimeString()}</p>
                                 </div>
-                                <div className="px-4 py-2 bg-emerald-500/10 text-emerald-500 rounded-xl text-[14px] font-black uppercase tracking-widest border border-emerald-500/20">
-                                    {sub.score !== undefined && sub.score !== null ? `Calificación: ${sub.score}/100` : 'Entregado'}
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <button 
+                                      onClick={() => handleSegundaOportunidad(sub.id)}
+                                      className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-500/20 transition-colors"
+                                    >
+                                      Borrar (2da Op.)
+                                    </button>
+                                    <div className={cn("px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border flex items-center gap-1", sub.estado_calificacion === 'pendiente_revision' ? "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30")}>
+                                        {sub.estado_calificacion === 'pendiente_revision' ? '🟡 Pendiente' : '🟢 Calificado'}
+                                    </div>
+                                    <div className="px-4 py-1.5 bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-xl text-[12px] font-black uppercase tracking-widest border border-blue-600/20">
+                                        {sub.score !== undefined && sub.score !== null ? `Pts: ${sub.score}/100` : 'Pts: ?/100'}
+                                    </div>
                                 </div>
                             </div>
                             
+                            {/* Interfaz de Revisión Manual Híbrida */}
+                            {sub.estado_calificacion === 'pendiente_revision' && (
+                                <div className="mt-2 p-4 rounded-xl border border-yellow-500/30 bg-yellow-500/5">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                        <p className="text-[11px] font-bold text-yellow-700 dark:text-yellow-400 uppercase tracking-widest">Requiere revisión manual del profesor</p>
+                                        <button 
+                                            onClick={() => {
+                                                const newScoreStr = window.prompt(`Ingresa la calificación final para ${sub.student_name} (0-100):`, sub.score || "0");
+                                                if (newScoreStr !== null && !isNaN(parseInt(newScoreStr))) {
+                                                    const feedback = window.prompt("Comentarios para el alumno (opcional):", sub.feedback_profesor || "");
+                                                    handleUpdateScore(sub.id, parseInt(newScoreStr), feedback || "");
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-yellow-500 text-black font-black text-[10px] uppercase tracking-widest rounded-lg hover:bg-yellow-400 transition-colors shadow-lg shadow-yellow-500/20"
+                                        >
+                                            Calificar Ahora
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Desglose de respuestas */}
                             {sub.answers && (
                                 <div className="mt-2 p-4 bg-black/5 dark:bg-black/20 rounded-2xl">

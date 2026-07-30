@@ -269,7 +269,12 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
       for (const q of questions) {
         const { data: qData, error: qError } = await supabase
           .from('questions')
-          .insert([{ exam_id: newExamId, texto_pregunta: q.text }])
+          .insert([{ 
+            exam_id: newExamId, 
+            texto_pregunta: q.text,
+            tipo_pregunta: q.type === 'multiple' ? 'opcion_multiple' : 'abierta',
+            valor_puntos: 1
+          }])
           .select();
           
         if (qError) throw qError;
