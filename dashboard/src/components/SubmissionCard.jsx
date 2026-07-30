@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { cn } from '../utils/cn'; // Asumo que cn se puede mover a utils o lo redefinimos aquí.
-// Pero como es pequeño, redefinamos cn aquí para evitar problemas de dependencias circulares o rutas si no existe utils/cn.js
+// redefinimos cx aquí para evitar problemas
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
