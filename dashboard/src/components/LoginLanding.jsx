@@ -58,7 +58,11 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
           };
 
           const errorNombre = validarNombreProfesional(name);
-          if (errorNombre) throw new Error(errorNombre);
+          if (errorNombre) {
+            alert(errorNombre);
+            setLoading(false);
+            return;
+          }
 
           if (!email.includes('@')) throw new Error('Ingresa un correo válido.');
           
