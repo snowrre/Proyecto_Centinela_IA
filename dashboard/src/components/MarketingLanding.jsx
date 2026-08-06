@@ -114,14 +114,26 @@ export default function MarketingLanding({ onGoToLogin }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="flex flex-col sm:flex-row items-center justify-center gap-4"
+              className="flex flex-col items-center justify-center mt-6"
             >
+              {/* 1. BOTÓN AZUL ACTUAL */}
               <button 
                 onClick={() => document.getElementById('pricing').scrollIntoView({ behavior: 'smooth' })}
                 className="w-full sm:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-lg transition-all hover:scale-105 active:scale-95 shadow-xl shadow-blue-600/25 flex items-center justify-center gap-2"
               >
                 Adquirir Licencia Institucional <ArrowRight className="w-5 h-5" />
               </button>
+
+              {/* 2. EL NUEVO ENLACE SECUNDARIO */}
+              <p className="mt-5 text-sm text-gray-400 font-medium text-center">
+                ¿Tu universidad ya cuenta con una licencia?{' '}
+                <button 
+                  onClick={onGoToLogin}
+                  className="text-blue-400 hover:text-white underline underline-offset-4 decoration-blue-400/50 hover:decoration-white transition-all duration-300"
+                >
+                  Ingresa aquí
+                </button>
+              </p>
             </motion.div>
           </div>
 
