@@ -14,11 +14,13 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
 
   const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState(null);
+  const [errorValidacion, setErrorValidacion] = useState("");
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setErrorValidacion("");
 
     // --- MODO SALVAVIDAS (DEMO) ---
     // Si el internet de la escuela falla o bloquea Supabase, este usuario siempre entrará
@@ -59,7 +61,7 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
 
           const errorNombre = validarNombreProfesional(name);
           if (errorNombre) {
-            alert(errorNombre);
+            setErrorValidacion(errorNombre);
             setLoading(false);
             return;
           }
@@ -273,6 +275,20 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                   ? 'Introduce tus credenciales para continuar.'
                   : (isRegistering ? 'Crea tu cuenta para poder presentar evaluaciones.' : 'Ingresa tus datos para comenzar la evaluación.')}
               </p>
+
+              {/* Si existe un error, dibujamos esta caja elegante */}
+              {errorValidacion && (
+                <div className="mb-6 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+                  {/* Icono de advertencia */}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0 mt-0.5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  {/* Texto del error */}
+                  <p className="text-sm font-medium leading-relaxed">
+                    {errorValidacion}
+                  </p>
+                </div>
+              )}
 
               {error && (
                 <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-[10px] font-bold uppercase tracking-tight flex items-center gap-2">
