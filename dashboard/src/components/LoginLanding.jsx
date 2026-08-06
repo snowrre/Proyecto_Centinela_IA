@@ -40,6 +40,26 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
         // Lógica de Alumno
         if (isRegistering) {
           if (!name.trim()) throw new Error('El Nombre Completo es obligatorio.');
+          
+          const validarNombreProfesional = (nombre) => {
+            const nombreLimpio = nombre.trim();
+            const regexLetras = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
+            if (!regexLetras.test(nombreLimpio)) {
+              return "El nombre solo puede contener letras y espacios. No se permiten números ni símbolos.";
+            }
+            const palabras = nombreLimpio.split(/\s+/);
+            if (palabras.length < 2) {
+              return "Por favor, ingresa al menos un nombre y un apellido real.";
+            }
+            if (nombreLimpio.length < 5 || nombreLimpio.length > 50) {
+              return "El nombre debe tener una longitud válida (entre 5 y 50 letras).";
+            }
+            return null;
+          };
+
+          const errorNombre = validarNombreProfesional(name);
+          if (errorNombre) throw new Error(errorNombre);
+
           if (!email.includes('@')) throw new Error('Ingresa un correo válido.');
           
           // ==========================================
