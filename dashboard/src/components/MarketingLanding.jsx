@@ -50,18 +50,29 @@ export default function MarketingLanding({ onGoToLogin }) {
             </div>
             <span className="text-xl font-black tracking-tighter uppercase">Centinela IA</span>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 md:gap-6">
+            {/* 1. BOTÓN: PORTAL DE ACCESO (Más visible, con ícono y efecto hover) */}
             <button 
               onClick={onGoToLogin}
-              className="text-sm font-bold text-neutral-400 hover:text-white transition-colors"
+              className="group flex items-center gap-2 text-gray-300 hover:text-white font-semibold text-base px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all duration-300"
             >
+              {/* Ícono de Usuario (Ayuda a los que no leen) */}
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400 group-hover:text-blue-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+              </svg>
               Portal de Acceso
             </button>
+
+            {/* 2. BOTÓN: ADQUIRIR LICENCIA (Más grande, contraste fuerte y sombra brillante) */}
             <button 
               onClick={() => document.getElementById('pricing').scrollIntoView({ behavior: 'smooth' })}
-              className="px-6 py-2.5 bg-white text-black rounded-full text-sm font-bold hover:bg-neutral-200 transition-colors"
+              className="bg-white text-gray-900 hover:bg-gray-100 font-bold text-base px-7 py-2.5 rounded-full shadow-[0_0_15px_rgba(255,255,255,0.3)] hover:shadow-[0_0_25px_rgba(255,255,255,0.5)] transform hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
             >
               Adquirir Licencia
+              {/* Flecha sutil para invitar a la acción */}
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
             </button>
           </div>
         </div>
