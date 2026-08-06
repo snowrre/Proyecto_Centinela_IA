@@ -265,38 +265,54 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
   const initCamera = async () => {
     try {
       // ── BUG-02 Fix: Detección de Cámaras Virtuales (Virtual Camera bypass) ─────────
-      // Enumeramos los dispositivos para buscar software de transmisión malicioso
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      const obtenerCamaraFisica = async () => {
+        // PASO 1: Pedir un stream temporal PRIMERO
+        let streamTemporal;
+        try {
+          streamTemporal = await navigator.mediaDevices.getUserMedia({ video: true });
+        } catch (error) {
+          throw new Error("PERMISOS_DENEGADOS");
+        }
 
-      // Palabras clave comunes de cámaras virtuales y software de inyección
-      const virtualKeywords = ['virtual', 'obs', 'manycam', 'droidcam', 'epoccam', 'camo', 'xsplit', 'snap'];
+        // PASO 2: Leer todos los dispositivos multimedia conectados
+        const dispositivos = await navigator.mediaDevices.enumerateDevices();
+        const camaras = dispositivos.filter(d => d.kind === 'videoinput');
 
-      const hasVirtualCamera = videoDevices.some(device => 
-        virtualKeywords.some(keyword => device.label.toLowerCase().includes(keyword))
-      );
+        // PASO 3: Apagar el stream temporal
+        streamTemporal.getTracks().forEach(track => track.stop());
 
-      if (hasVirtualCamera) {
-        const virtualName = videoDevices.find(device => 
-            virtualKeywords.some(keyword => device.label.toLowerCase().includes(keyword))
-        )?.label || 'Desconocida';
+        // PASO 4: La "Lista Negra"
+        const softwareVirtual = [
+          'virtual', 'obs', 'manycam', 'droidcam', 'epoccam', 'camo', 'xsplit', 'snap', 'iriun', 'vdo.ninja', 'camlink'
+        ];
 
-        // Dispara la alerta máxima a la base de datos (CRÍTICO)
-        await supabase.from('camera_logs').insert([{
-            pin_sala: formData.pin || studentData?.roomCode,
-            event_type: 'CRITICO: Cámara Virtual',
-            description: `Software detectado: ${virtualName}`,
-            matricula: formData.matricula || studentData?.matricula || "Desconocida",
-            nombre_completo: formData.matricula || studentData?.matricula || "Estudiante",
-            created_at: new Date().toISOString()
-        }]);
-        
-        throw new Error("VIRTUAL_CAMERA_BLOCKED");
-      }
+        // PASO 5: Evaluar y encontrar la primera cámara real disponible
+        const camaraValida = camaras.find(camara => {
+          const nombre = camara.label.toLowerCase();
+          const esVirtual = softwareVirtual.some(trampa => nombre.includes(trampa));
+          return !esVirtual; 
+        });
+
+        if (!camaraValida) {
+          // Buscamos el nombre del software virtual detectado para el log (si hay)
+          const virtualName = camaras.find(device => 
+            softwareVirtual.some(keyword => device.label.toLowerCase().includes(keyword))
+          )?.label || 'Desconocida';
+          throw new Error(`VIRTUAL_CAMERA_BLOCKED:${virtualName}`); 
+        }
+
+        return camaraValida.deviceId;
+      };
+
+      const idCamaraSegura = await obtenerCamaraFisica();
       // ─────────────────────────────────────────────────────────────────────────────
 
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { width: 1280, height: 720 }, 
+        video: { 
+          deviceId: { exact: idCamaraSegura },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }, 
         audio: true 
       });
       streamRef.current = stream;
@@ -308,7 +324,19 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       }
     } catch (err) {
       console.error("Error media devices.", err);
-      if (err.message === "VIRTUAL_CAMERA_BLOCKED") {
+      if (err.message && err.message.startsWith("VIRTUAL_CAMERA_BLOCKED")) {
+          const virtualName = err.message.split(":")[1] || "Desconocida";
+          
+          // Dispara la alerta máxima a la base de datos (CRÍTICO)
+          supabase.from('camera_logs').insert([{
+              pin_sala: formData.pin || studentData?.roomCode,
+              event_type: 'CRITICO: Cámara Virtual',
+              description: `Software detectado: ${virtualName}`,
+              matricula: formData.matricula || studentData?.matricula || "Desconocida",
+              nombre_completo: formData.matricula || studentData?.matricula || "Estudiante",
+              created_at: new Date().toISOString()
+          }]).then(() => console.log('Log de cámara virtual guardado.'));
+
           toast.error("VIRTUAL CAM BLOQUEADA: Desactiva OBS, ManyCam o similares para continuar.", { duration: 6000 });
       } else {
           toast.error("Se requiere acceso a la cámara y micrófono (físicos) para realizar el examen.");

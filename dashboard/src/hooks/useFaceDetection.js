@@ -110,17 +110,49 @@ export function useFaceDetection() {
   //
   const startCamera = useCallback(async (videoElement) => {
     try {
-      // Bloquear cámaras virtuales (OBS, ManyCam, DroidCam, etc.)
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const cams    = devices.filter(d => d.kind === 'videoinput');
-      const virtualKeywords = ['virtual', 'obs', 'manycam', 'droidcam', 'epoccam', 'camo', 'xsplit'];
-      const hasVirtual = cams.some(d =>
-        virtualKeywords.some(kw => d.label.toLowerCase().includes(kw))
-      );
-      if (hasVirtual) throw new Error('VIRTUAL_CAMERA_DETECTED');
+      const obtenerCamaraFisica = async () => {
+        // PASO 1: Pedir un stream temporal PRIMERO
+        let streamTemporal;
+        try {
+          streamTemporal = await navigator.mediaDevices.getUserMedia({ video: true });
+        } catch (error) {
+          throw new Error("PERMISOS_DENEGADOS");
+        }
+
+        // PASO 2: Leer todos los dispositivos multimedia conectados
+        const dispositivos = await navigator.mediaDevices.enumerateDevices();
+        const camaras = dispositivos.filter(d => d.kind === 'videoinput');
+
+        // PASO 3: Apagar el stream temporal
+        streamTemporal.getTracks().forEach(track => track.stop());
+
+        // PASO 4: La "Lista Negra"
+        const softwareVirtual = [
+          'obs', 'virtual', 'manycam', 'snap', 'epoccam', 'iriun', 'xsplit', 'vdo.ninja', 'camlink', 'droidcam', 'camo'
+        ];
+
+        // PASO 5: Evaluar y encontrar la primera cámara real disponible
+        const camaraValida = camaras.find(camara => {
+          const nombre = camara.label.toLowerCase();
+          const esVirtual = softwareVirtual.some(trampa => nombre.includes(trampa));
+          return !esVirtual; 
+        });
+
+        if (!camaraValida) {
+          throw new Error("VIRTUAL_CAMERA_DETECTED"); 
+        }
+
+        return camaraValida.deviceId;
+      };
+
+      const idCamaraSegura = await obtenerCamaraFisica();
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' },
+        video: { 
+          deviceId: { exact: idCamaraSegura },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false,
       });
 
