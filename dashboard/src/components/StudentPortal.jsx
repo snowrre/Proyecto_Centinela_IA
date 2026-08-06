@@ -169,6 +169,9 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       if (!studentData?.id_universidad) {
         alert("Sesión inválida o caducada. Por favor, vuelve a iniciar sesión en el portal.");
         exitPortal();
+        return;
+      }
+
       // 🔒 CANDADO ANTI-INTENTOS DEFINITIVO 🔒
       // 1. Forzamos que tanto la matrícula como el PIN sean texto puro para evitar errores de tipo en Supabase
       const matriculaString = String(studentData?.matricula);
