@@ -177,19 +177,18 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       const matriculaString = String(studentData?.matricula);
       const pinString = String(currentPin);
 
-      // 2. Buscamos TODOS los registros que coincidan, sin usar .maybeSingle() para evitar que colapse
-      const { data: entregasPrevias, error: errorCandado } = await supabase
-        .from('exam_submissions')
-        .select('id')
-        .eq('exam_pin', pinString)
-        .eq('student_name', matriculaString);
+      // 2. Usar el PUENTE SEGURO (RPC) para no romper el RLS (Row Level Security)
+      const { data: yaEntrego, error: errorCandado } = await supabase.rpc('verificar_entrega_previa', {
+        p_exam_pin: pinString,
+        p_matricula: matriculaString
+      });
 
       if (errorCandado) {
         console.error("Error revisando el candado:", errorCandado);
       }
 
-      // 3. Si el arreglo encuentra 1 o más registros, la puerta se cierra automáticamente
-      if (entregasPrevias && entregasPrevias.length > 0) {
+      // 3. Si la función devuelve true, la puerta se cierra automáticamente
+      if (yaEntrego === true) {
         alert(`Acceso denegado: La matrícula ${matriculaString} ya entregó este examen y no se permiten más intentos.`);
         exitPortal();
         return;
