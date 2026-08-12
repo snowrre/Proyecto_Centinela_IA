@@ -177,11 +177,19 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       const matriculaString = String(studentData?.matricula);
       const pinString = String(currentPin);
 
+      // --- INICIO DE SENSORES DE DEBUG ---
+      console.log("🔎 DEBUG 1 - ¿Qué le estamos mandando a Supabase?");
+      console.log("🔎 PIN:", pinString, "| MATRÍCULA:", matriculaString);
+      // --- FIN DE SENSORES ---
+
       // Llamamos a la base de datos asegurando que los nombres coinciden con el SQL (p_exam_pin y p_matricula)
       const { data: yaEntrego, error: errorCandado } = await supabase.rpc('verificar_entrega_previa', {
         p_exam_pin: pinString,
         p_matricula: matriculaString
       });
+
+      // --- SENSOR DE RESPUESTA ---
+      console.log("🔎 DEBUG 2 - ¿Qué respondió la base de datos?", yaEntrego);
 
       // Si Supabase marca un error (falla de internet, error de parámetros, etc.), bloqueamos por precaución.
       if (errorCandado) {
