@@ -48,6 +48,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
   const [externalConfirmed, setExternalConfirmed] = useState(false);
   const [isExpelled, setIsExpelled] = useState(false);
   const [diagnosticoAprobado, setDiagnosticoAprobado] = useState(false);
+  const [mensajeBloqueo, setMensajeBloqueo] = useState(null);
   
   // PASO 3: Referencias solicitadas
   const videoRef = useRef(null);
@@ -177,32 +178,21 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       const matriculaString = String(studentData?.matricula);
       const pinString = String(currentPin);
 
-      // --- INICIO DE SENSORES DE DEBUG ---
-      console.log("🔎 DEBUG 1 - ¿Qué le estamos mandando a Supabase?");
-      console.log("🔎 PIN:", pinString, "| MATRÍCULA:", matriculaString);
-      // --- FIN DE SENSORES ---
-
-      // Llamamos a la base de datos asegurando que los nombres coinciden con el SQL (p_exam_pin y p_matricula)
       const { data: yaEntrego, error: errorCandado } = await supabase.rpc('verificar_entrega_previa', {
         p_exam_pin: pinString,
         p_matricula: matriculaString
       });
 
-      // --- SENSOR DE RESPUESTA ---
-      console.log("🔎 DEBUG 2 - ¿Qué respondió la base de datos?", yaEntrego);
-
-      // Si Supabase marca un error (falla de internet, error de parámetros, etc.), bloqueamos por precaución.
       if (errorCandado) {
         console.error("Error en el candado RPC:", errorCandado);
-        alert("Hubo un error de conexión al verificar tu estatus. Intenta nuevamente.");
+        setMensajeBloqueo("Hubo un error de conexión al verificar tu estatus. Intenta nuevamente.");
         return; // Detiene el código, no lo deja entrar.
       }
 
-      // Si la función devuelve estrictamente TRUE, significa que ya existe su examen en la base de datos.
       if (yaEntrego === true) {
-        alert(`Acceso denegado: La matrícula ${matriculaString} ya entregó este examen. No se permiten más intentos.`);
-        exitPortal();
-        return; // Portazo en la cara.
+        // EN LUGAR DE alert() Y exitPortal(), GUARDAMOS EL MENSAJE:
+        setMensajeBloqueo(`La matrícula ${matriculaString} ya entregó el examen de este PIN. Por seguridad académica, no se permiten intentos adicionales.`);
+        return; // Detenemos el código para que no encienda la cámara
       }
 
       const { data: dbExam, error } = await supabase
@@ -1228,6 +1218,37 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                 {loading ? 'Finalizando...' : '✅ Finalizar y Apagar Cámara'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL DE ACCESO DENEGADO (DISEÑO PREMIUM) */}
+      {mensajeBloqueo && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center transform transition-all">
+            
+            {/* Ícono de Seguridad */}
+            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-red-100">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            
+            {/* Textos */}
+            <h3 className="text-2xl font-bold text-gray-900 mb-3">Acceso Restringido</h3>
+            <p className="text-gray-600 mb-8 leading-relaxed font-medium">
+              {mensajeBloqueo}
+            </p>
+            
+            {/* Botón de Acción */}
+            <button
+              onClick={() => {
+                setMensajeBloqueo(null); // Oculta el modal
+                exitPortal(); // Ahora sí, lo regresa al inicio
+              }}
+              className="w-full bg-gray-900 hover:bg-black text-white font-bold py-3.5 px-4 rounded-xl transition-colors duration-200 shadow-lg shadow-gray-900/30"
+            >
+              Entendido, volver al inicio
+            </button>
           </div>
         </div>
       )}
