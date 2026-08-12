@@ -15,6 +15,7 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
   const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState(null);
   const [errorValidacion, setErrorValidacion] = useState("");
+  const [mostrarContrasena, setMostrarContrasena] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -336,13 +337,35 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                     <input 
-                      type={view === 'teacher_login' ? 'password' : 'text'}
+                      type={view === 'teacher_login' && !mostrarContrasena ? 'password' : 'text'}
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all"
+                      className={`w-full pl-10 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all ${view === 'teacher_login' ? 'pr-12' : 'pr-4'}`}
                       placeholder={view === 'teacher_login' ? '••••••••' : 'Tu Matrícula'}
                     />
+                    
+                    {/* Icono Derecho (El Botón del Ojito) solo para profesores */}
+                    {view === 'teacher_login' && (
+                      <button
+                        type="button" 
+                        onClick={() => setMostrarContrasena(!mostrarContrasena)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-400 hover:text-neutral-600 focus:outline-none"
+                      >
+                        {mostrarContrasena ? (
+                          /* Icono de Ojo Abierto */
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        ) : (
+                          /* Icono de Ojo Cerrado (con la diagonal) */
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
 
