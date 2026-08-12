@@ -172,26 +172,29 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
         return;
       }
 
-      // 🔒 CANDADO ANTI-INTENTOS DEFINITIVO 🔒
+      // 🔒 CANDADO ANTI-INTENTOS CON PUENTE SEGURO (RPC) 🔒
       // 1. Forzamos que tanto la matrícula como el PIN sean texto puro para evitar errores de tipo en Supabase
       const matriculaString = String(studentData?.matricula);
       const pinString = String(currentPin);
 
-      // 2. Usar el PUENTE SEGURO (RPC) para no romper el RLS (Row Level Security)
+      // Llamamos a la base de datos asegurando que los nombres coinciden con el SQL (p_exam_pin y p_matricula)
       const { data: yaEntrego, error: errorCandado } = await supabase.rpc('verificar_entrega_previa', {
         p_exam_pin: pinString,
         p_matricula: matriculaString
       });
 
+      // Si Supabase marca un error (falla de internet, error de parámetros, etc.), bloqueamos por precaución.
       if (errorCandado) {
-        console.error("Error revisando el candado:", errorCandado);
+        console.error("Error en el candado RPC:", errorCandado);
+        alert("Hubo un error de conexión al verificar tu estatus. Intenta nuevamente.");
+        return; // Detiene el código, no lo deja entrar.
       }
 
-      // 3. Si la función devuelve true, la puerta se cierra automáticamente
+      // Si la función devuelve estrictamente TRUE, significa que ya existe su examen en la base de datos.
       if (yaEntrego === true) {
-        alert(`Acceso denegado: La matrícula ${matriculaString} ya entregó este examen y no se permiten más intentos.`);
+        alert(`Acceso denegado: La matrícula ${matriculaString} ya entregó este examen. No se permiten más intentos.`);
         exitPortal();
-        return;
+        return; // Portazo en la cara.
       }
 
       const { data: dbExam, error } = await supabase
