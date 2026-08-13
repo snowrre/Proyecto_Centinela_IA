@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   ShieldAlert, AlertCircle, AlertTriangle,
   Users, Presentation, Activity, Video, Clock, ChevronRight, Mic, Trash2, Folder, Loader2
@@ -28,7 +29,27 @@ export default function AdminDashboard({ darkMode }) {
   // ── Telemetría Biométrica en Tiempo Real ─────────────────────────────────
   const [alertasBio, setAlertasBio] = useState([]);
 
+  // 2. Crea la función dentro de tu componente
+  const exportarAExcel = () => {
+    const entregasDelExamen = submissions.filter(sub => String(sub.exam_pin) === String(filterPin));
+    const datosFormateados = entregasDelExamen.map((alumno) => ({
+      "Matrícula": alumno.student_id || "N/A",
+      "Nombre del Alumno": alumno.student_name,
+      "Calificación": alumno.score,
+      "Estado": alumno.estado_calificacion || "calificado",
+      "Fecha de Entrega": new Date(alumno.created_at).toLocaleDateString('es-MX')
+    }));
 
+    // 3. Convertimos el JSON limpio a una hoja de trabajo (Worksheet)
+    const hojaDeTrabajo = XLSX.utils.json_to_sheet(datosFormateados);
+
+    // 4. Creamos un libro de Excel (Workbook) y le pegamos nuestra hoja
+    const libroDeExcel = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libroDeExcel, hojaDeTrabajo, "Calificaciones");
+
+    // 5. Ordenamos la descarga automática en la PC del profesor
+    XLSX.writeFile(libroDeExcel, "Reporte_Centinela_IA.xlsx");
+  };
 
   const showToast = (message, type = 'success') => {
     Swal.fire({
@@ -1168,7 +1189,19 @@ export default function AdminDashboard({ darkMode }) {
 
       {filterPin && (
         <div className="mt-12 space-y-8">
-            <h3 className="text-sm font-black uppercase tracking-[0.3em] text-neutral-500">Resultados del Examen</h3>
+            <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-neutral-500">Resultados del Examen</h3>
+                <button
+                  onClick={exportarAExcel}
+                  className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold py-2.5 px-5 rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
+                >
+                  {/* Ícono de Documento */}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Exportar a Excel
+                </button>
+            </div>
             <div className={cn("rounded-[40px] border overflow-hidden", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-xl")}>
                 <div className="p-8 space-y-4">
                     {submissions.filter(sub => String(sub.exam_pin) === String(filterPin)).map(sub => (
