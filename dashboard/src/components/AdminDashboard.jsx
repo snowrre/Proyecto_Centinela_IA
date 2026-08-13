@@ -33,8 +33,8 @@ export default function AdminDashboard({ darkMode }) {
   const exportarAExcel = () => {
     const entregasDelExamen = submissions.filter(sub => String(sub.exam_pin) === String(filterPin));
     const datosFormateados = entregasDelExamen.map((alumno) => ({
-      "Matrícula": alumno.student_id || "N/A",
-      "Nombre del Alumno": alumno.student_name,
+      "Matrícula": alumno.student_name || "N/A",
+      "Nombre del Alumno": studentStatus[alumno.student_name]?.nombre || alumno.student_name || "N/A",
       "Calificación": alumno.score,
       "Estado": alumno.estado_calificacion || "calificado",
       "Fecha de Entrega": new Date(alumno.created_at).toLocaleDateString('es-MX')
