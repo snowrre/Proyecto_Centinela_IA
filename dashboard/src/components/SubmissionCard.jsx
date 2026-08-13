@@ -128,7 +128,7 @@ export function SubmissionCard({ submission, examId, onSegundaOportunidad, onUpd
       {/* CABECERA RESUMEN */}
       <div className={cx("p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b", darkMode ? "bg-[#161616] border-white/10" : "bg-gray-50 border-gray-100")}>
         <div>
-          <h3 className={cx("text-lg font-bold", darkMode ? "text-white" : "text-gray-800")}>{submission.student_name || submission.matricula || 'Desconocido'}</h3>
+          <h3 className={cx("text-lg font-bold", darkMode ? "text-white" : "text-gray-800")}>{submission.nombre_real || submission.student_name || submission.matricula || 'Desconocido'}</h3>
           <p className="text-sm text-gray-500">Enviado: {new Date(submission.created_at).toLocaleTimeString()}</p>
         </div>
         

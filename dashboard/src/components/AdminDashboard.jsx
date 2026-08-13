@@ -34,7 +34,7 @@ export default function AdminDashboard({ darkMode }) {
     const entregasDelExamen = submissions.filter(sub => String(sub.exam_pin) === String(filterPin));
     const datosFormateados = entregasDelExamen.map((alumno) => ({
       "Matrícula": alumno.student_name || "N/A",
-      "Nombre del Alumno": studentStatus[alumno.student_name]?.nombre || alumno.student_name || "N/A",
+      "Nombre del Alumno": alumno.nombre_real || studentStatus[alumno.student_name]?.nombre || alumno.student_name || "N/A",
       "Calificación": alumno.score,
       "Estado": alumno.estado_calificacion || "calificado",
       "Fecha de Entrega": new Date(alumno.created_at).toLocaleDateString('es-MX')
@@ -141,7 +141,24 @@ export default function AdminDashboard({ darkMode }) {
             .select('*')
             .in('exam_pin', misPinesDeSala)
             .order('created_at', { ascending: false });
-          subData = subs || [];
+          
+          if (subs && subs.length > 0) {
+            const listaMatriculas = subs.map(sub => sub.student_name);
+            const { data: perfilesAlumnos } = await supabase
+              .from('alumnos')
+              .select('matricula, nombre_completo')
+              .in('matricula', listaMatriculas);
+              
+            subData = subs.map(sub => {
+              const alumnoEncontrado = perfilesAlumnos?.find(p => String(p.matricula) === String(sub.student_name));
+              return {
+                ...sub,
+                nombre_real: alumnoEncontrado ? alumnoEncontrado.nombre_completo : null
+              };
+            });
+          } else {
+            subData = [];
+          }
       }
       
       setLogs(logData);
