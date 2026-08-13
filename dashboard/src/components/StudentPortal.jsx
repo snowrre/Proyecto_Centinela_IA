@@ -158,7 +158,27 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       initCamera();
       fetchExamData();
     }
-  }, [studentData]);
+
+    // 👇 PROTOCOLO DE DESTRUCCIÓN SEGURA (DEEP CLEANUP) 👇
+    return () => {
+      console.log("[BioMonitor] Ejecutando limpieza profunda de memoria...");
+
+      // A. Frenar el motor de Inteligencia Artificial (cancelAnimationFrame)
+      stopMonitoring(); 
+
+      // B. Apagar la cámara web físicamente (apaga la luz verde de la laptop)
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject;
+        const tracks = stream.getTracks();
+        
+        tracks.forEach((track) => {
+          track.stop(); // Destruye la conexión con el hardware
+        });
+        
+        videoRef.current.srcObject = null;
+      }
+    };
+  }, [studentData, stopMonitoring]);
 
   const fetchExamData = async () => {
     try {
