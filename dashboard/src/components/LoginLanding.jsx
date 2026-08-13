@@ -184,10 +184,12 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
           if (onLoginStudent) {
             onLoginStudent({ 
               email: alumnoData.correo,
+              correo: alumnoData.correo,
               matricula: alumnoData.matricula,
               nombre_completo: alumnoData.nombre_completo,
               roomCode: roomCode,
-              id_universidad: alumnoData.id_universidad
+              id_universidad: alumnoData.id_universidad,
+              biometria_registrada: alumnoData.biometria_registrada ?? false
             });
           }
         }

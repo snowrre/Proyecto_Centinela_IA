@@ -15,6 +15,7 @@ import MagicExamCreator from './components/MagicExamCreator';
 import StudentPortal from './components/StudentPortal';
 import AdminDashboard from './components/AdminDashboard';
 import BiometricAuth from './components/BiometricAuth';
+import EnrolamientoFacial from './components/EnrolamientoFacial';
 import ProcesarPago from './components/ProcesarPago';
 import RegistroCampus from './components/RegistroCampus';
 import { useBiometric } from './context/BiometricContext';
@@ -113,8 +114,6 @@ export default function App() {
         onLoginTeacher={() => setView('teacher_dashboard')} 
         onLoginStudent={async (data) => {
           setStudentData(data);
-          // ── NUEVO: ir a verificación biométrica ANTES del portal del alumno ──
-          setView('biometric_auth');
 
           // Guardar sesión en localStorage para persistencia
           const sessionData = {
@@ -122,6 +121,16 @@ export default function App() {
             timestamp: new Date().toISOString()
           };
           localStorage.setItem('centinela_session', JSON.stringify(sessionData));
+
+          // 🚦 SEMÁFORO DE ENROLAMIENTO BIOMÉTRICO
+          // Si el alumno NO tiene huella registrada, lo interceptamos ANTES
+          // de la prueba de vida para que registre su rostro por primera vez.
+          if (data.biometria_registrada === false) {
+            setView('enrolamiento_facial');
+          } else {
+            // Alumno conocido → flujo normal de prueba de vida
+            setView('biometric_auth');
+          }
 
           // Registrar la conexión en Supabase
           try {
@@ -141,7 +150,30 @@ export default function App() {
     );
   }
 
-  // ── NUEVA VISTA: Prueba de Vida Biométrica ────────────────────────────────
+  // ── 🔴 SEMÁFORO: Enrolamiento Facial (primer uso) ─────────────────────────
+  // Se muestra SOLO si el alumno tiene biometria_registrada === false.
+  // Una vez que guarda su huella en Supabase, actualiza el estado local
+  // y lo redirige automáticamente a la prueba de vida biométrica.
+  if (view === 'enrolamiento_facial') {
+    return (
+      <EnrolamientoFacial
+        correoInstitucional={studentData?.correo}
+        matricula={studentData?.matricula}
+        darkMode={darkMode}
+        onSuccess={() => {
+          // Huella guardada ✓ — actualizamos estado local para que el semáforo
+          // se ponga en verde y mandamos al flujo normal de prueba de vida.
+          setStudentData(prev => ({ ...prev, biometria_registrada: true }));
+          setView('biometric_auth');
+        }}
+        onError={(motivo) => {
+          console.error('[App] Error en EnrolamientoFacial:', motivo);
+        }}
+      />
+    );
+  }
+
+  // ── 🟢 VISTA: Prueba de Vida Biométrica (alumno ya enrolado) ───────────────
   if (view === 'biometric_auth') {
     return (
       <BiometricAuth
