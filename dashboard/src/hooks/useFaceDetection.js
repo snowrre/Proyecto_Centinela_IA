@@ -37,32 +37,40 @@ import { useBiometric } from '../context/BiometricContext';
 
 // ── CONFIGURACIÓN CENTRAL DE @vladmandic/human ───────────────────────────────
 //
-// NOTA sobre backend:
-//   'webgl'  — GPU (recomendado). No necesita archivos .wasm. Más rápido.
-//   'wasm'   — CPU fallback. Necesita los 3 archivos .wasm en public/wasm/.
+// FIX VRAM: Configuración de bajo consumo para evitar el crash "abort(Module.noExitRuntime)"
+// que ocurre cuando WebGL agota la memoria de video en tarjetas con drivers de Linux.
 //
-// Usamos 'webgl' como primera opción. Si el navegador no tiene GPU o WebGL
-// está desactivado, Human cae automáticamente a 'cpu'. Si se necesita forzar
-// WASM, el Fix #DELTA en loadModels() inyecta las rutas correctas primero.
+// Cambios vs config anterior:
+//   • mesh.enabled: false  — La malla de 468 puntos consume >60% de la VRAM. Para
+//     comparación biométrica solo necesitamos el embedding, no la malla visual.
+//   • gesture.enabled: false — Desactivado para ahorrar ciclos de GPU adicionales.
+//   • detector.maxDetected: 1 — Solo procesar UN rostro. Más de uno desperdicia VRAM.
+//   • detector.minConfidence: 0.5 — Umbral estándar, evita procesar "caras fantasma".
+//   • detector.maxSize: 256  — Reescala internamente a 256px antes de inferir.
+//     Reduce VRAM ~75% vs el valor por defecto (1024px). Suficiente para embeddings.
 //
 const HUMAN_CONFIG = {
-  // WebGL = GPU acelerado. Firefox en Linux lo maneja limpio y estable.
-  // Elimina WASM de la ecuación → el error "Multiple volume of Wasm sessions"
-  // no puede existir porque simplemente no se toca esa tecnología.
   backend: 'webgl',
-  wasmPath: '/wasm/',      // Ignorado en webgl, pero lo dejamos por si hay fallback
+  wasmPath: '/wasm/',
   modelBasePath: '/wasm/',
   debug: false,
+  cacheSensitivity: 0,  // Desactivar caché de tensores — libera VRAM entre frames
   face: {
-    detector: { rotation: false },
-    mesh: { enabled: true },
-    iris: { enabled: false },
-    emotion: { enabled: false },
+    detector: {
+      rotation: false,
+      maxDetected: 1,        // Solo 1 rostro — ahorra memoria
+      minConfidence: 0.5,
+      maxSize: 256,          // FIX VRAM: reescalar a 256px antes de inferir
+    },
+    mesh:      { enabled: false },  // DESACTIVADO — ahorra ~60% de VRAM
+    iris:      { enabled: false },
+    emotion:   { enabled: false },
+    description: { enabled: true }, // Necesario para el embedding biométrico
   },
   body:    { enabled: false },
   hand:    { enabled: false },
   object:  { enabled: false },
-  gesture: { enabled: true },
+  gesture: { enabled: false },  // DESACTIVADO — ahorra ciclos de GPU
 };
 
 export const getHumanInstance = () => {
@@ -150,8 +158,12 @@ export function useFaceDetection() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           deviceId: { exact: idCamaraSegura },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          // FIX VRAM: Resolución reducida a 640×360 para aliviar la memoria de GPU.
+          // 1280×720 (HD) multiplica por 4 el costo de procesamiento del tensor.
+          // 640×360 es más que suficiente para la detección de rostros y el embedding.
+          width:  { ideal: 640,  max: 640  },
+          height: { ideal: 360,  max: 360  },
+          frameRate: { ideal: 15, max: 20 },  // 15fps en lugar de 30 — libera GPU
         },
         audio: false,
       });

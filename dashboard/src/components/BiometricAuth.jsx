@@ -80,6 +80,7 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
   // la función loop() capture valores obsoletos entre re-renders.
   const lastDetectTimeRef = useRef(0);     // Timestamp del último human.detect() completado
   const isDetectingRef    = useRef(false); // Guard: evita llamadas concurrentes a detect()
+  const fatalErrorCountRef = useRef(0);   // FAIL-CLOSED: contador de crashes de la IA
 
   const [uiPhase, setUiPhase]       = useState('loading_models');
   // 'loading_models' | 'starting_camera' | 'challenge' | 'success' | 'error'
@@ -166,7 +167,7 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
   //   • Con el throttle, el canvas se dibuja siempre (suave), pero la IA solo
   //     procesa cuando la CPU está lista.
   //
-  const DETECT_INTERVAL_MS = 100; // 1000ms / 10 FPS = 100ms entre detecciones
+  const DETECT_INTERVAL_MS = 130; // 1000ms / ~7.5 FPS — más aire para la GPU vs 100ms anteriores
 
   const startRafLoop = useCallback(() => {
     if (rafRef.current) return; // Ya corriendo
@@ -222,6 +223,9 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
         try {
           const result = await detectFaceInFrame(video);
 
+          // ✅ Detección exitosa — resetear contador de errores fatales
+          fatalErrorCountRef.current = 0;
+
           if (result && !successRef.current) {
             // ── Pintar la malla facial sobre el canvas transparente ────────────
             if (canvas && result.face.length > 0) {
@@ -269,6 +273,35 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
               setTimeout(() => onSuccess?.(), 2000);
             });
           }
+        } catch (detectErr) {
+          // 🔴 PROTOCOLO FAIL-CLOSED — si detect() revienta (RuntimeError, abort, WebGL)
+          // NO ignoramos el error: lo contamos. Al 3° fallo consecutivo bloqueamos.
+          const esFatal = detectErr?.message &&
+            (detectErr.message.includes('abort') ||
+             detectErr.message.includes('RuntimeError') ||
+             detectErr.message.includes('WebGL') ||
+             detectErr.message.includes('memory') ||
+             detectErr.message.includes('out of'));
+
+          if (esFatal) {
+            fatalErrorCountRef.current += 1;
+            console.error(`[BiometricAuth] 🔴 Error fatal de IA (#${fatalErrorCountRef.current}):`, detectErr.message);
+
+            if (fatalErrorCountRef.current >= 3) {
+              // ⛔ Tras 3 crashes: BLOQUEO TOTAL (Fail-Closed)
+              // NUNCA llamamos onSuccess() — la puerta se cierra, no se abre.
+              stopRafLoop();
+              successRef.current = true; // Evitar que el loop intente continuar
+              setErrorMsg(
+                'Error de Seguridad: El motor de Inteligencia Artificial colapsó. ' +
+                'Por motivos de integridad académica, no puedes continuar. ' +
+                'Contacta a tu docente para que reinicie tu sesión.'
+              );
+              setUiPhase('error');
+              onError?.('AI_FATAL_CRASH');
+            }
+          }
+          // Error transitorio no fatal — se ignora silenciosamente y el loop sigue
         } finally {
           isDetectingRef.current = false;
           lastDetectTimeRef.current = performance.now();
