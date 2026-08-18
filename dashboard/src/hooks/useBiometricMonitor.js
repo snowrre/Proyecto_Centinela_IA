@@ -112,7 +112,7 @@ export function useBiometricMonitor() {
       window.globalFaceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
           baseOptions: {
               modelAssetPath: "/face_landmarker.task",
-              delegate: "GPU"
+              delegate: "CPU" // VITAL: Evita colisión de WebGL en Firefox (error abort)
           },
           outputFaceBlendshapes: true,
           runningMode: "VIDEO",
