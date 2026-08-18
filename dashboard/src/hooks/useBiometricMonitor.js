@@ -102,6 +102,14 @@ export function useBiometricMonitor() {
     window.isInitializingAI = true;
     try {
       console.log("[BioMonitor] Descargando modelos de visión...");
+      
+      // FIX: EL TRUCO MÁGICO. Borramos la memoria residual de la IA de la entrada (@vladmandic/human)
+      // Esto evita el choque "abort(Module.noExitRuntime)" cuando MediaPipe intenta inicializarse
+      if (typeof window !== 'undefined' && window.Module) {
+          window.Module = undefined;
+          console.log("[BioMonitor] Memoria WASM limpiada con éxito.");
+      }
+
       ort.env.wasm.numThreads = 4;
       window.globalSession = await ort.InferenceSession.create('/yolov8n.onnx', { executionProviders: ['wasm'] });
       
