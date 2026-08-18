@@ -263,7 +263,7 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
           // 🔍 DIAGNÓSTICO #3 y #4 — ELIMINAR antes del despliegue final
           if (result?.face && result.face.length > 0) {
             const rostroActual = result.face[0];
-            console.log("3. Giro de cabeza (pitch, yaw):", rostroActual.rotation?.angle?.pitch, rostroActual.rotation?.angle?.yaw);
+            console.log("3. Estructura de Rotación:", rostroActual.rotation);
             
             if (rostroActual.embedding && huellaGuardadaRef.current) {
               const h = window.__HUMAN_INSTANCE__;

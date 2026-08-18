@@ -63,12 +63,12 @@ const HUMAN_CONFIG = {
   cacheSensitivity: 0,  // Desactivar caché de tensores — libera VRAM entre frames
   face: {
     detector: {
-      rotation: false,
+      rotation: true,        // REQUERIDO: para Liveness (giros de cabeza)
       maxDetected: 1,        // Solo 1 rostro — ahorra memoria
       minConfidence: 0.5,
       maxSize: 256,          // FIX VRAM: reescalar a 256px antes de inferir
     },
-    mesh:      { enabled: false },  // DESACTIVADO — ahorra ~60% de VRAM
+    mesh:      { enabled: true },   // REQUERIDO: la malla calcula los ángulos de Euler
     iris:      { enabled: false },
     emotion:   { enabled: false },
     description: { enabled: true }, // Necesario para el embedding biométrico
