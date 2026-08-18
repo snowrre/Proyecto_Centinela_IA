@@ -16,6 +16,7 @@ import StudentPortal from './components/StudentPortal';
 import AdminDashboard from './components/AdminDashboard';
 import BiometricAuth from './components/BiometricAuth';
 import EnrolamientoFacial from './components/EnrolamientoFacial';
+import TerminosYPrivacidad from './components/TerminosYPrivacidad';
 import ProcesarPago from './components/ProcesarPago';
 import RegistroCampus from './components/RegistroCampus';
 import { useBiometric } from './context/BiometricContext';
@@ -122,15 +123,9 @@ export default function App() {
           };
           localStorage.setItem('centinela_session', JSON.stringify(sessionData));
 
-          // 🚦 SEMÁFORO DE ENROLAMIENTO BIOMÉTRICO
-          // Si el alumno NO tiene huella registrada, lo interceptamos ANTES
-          // de la prueba de vida para que registre su rostro por primera vez.
-          if (data.biometria_registrada === false) {
-            setView('enrolamiento_facial');
-          } else {
-            // Alumno conocido → flujo normal de prueba de vida
-            setView('biometric_auth');
-          }
+          // 🚦 PRIMER PASO SIEMPRE: mostrar aviso de privacidad y términos
+          // El semáforo de enrolamiento se activa solo DESPUÉS de aceptar.
+          setView('terminos');
 
           // Registrar la conexión en Supabase
           try {
@@ -146,6 +141,30 @@ export default function App() {
             console.error('Error registrando conexión:', err);
           }
         }} 
+      />
+    );
+  }
+
+  // ── ⚖️ AVISO DE PRIVACIDAD Y TÉRMINOS (aparece siempre antes de la cámara) ──
+  if (view === 'terminos') {
+    return (
+      <TerminosYPrivacidad
+        darkMode={darkMode}
+        studentName={studentData?.nombre_completo || studentData?.matricula}
+        onAccept={() => {
+          // Términos aceptados ✔ — ahora activar el semáforo de enrolamiento
+          if (studentData?.biometria_registrada === false) {
+            setView('enrolamiento_facial');
+          } else {
+            setView('biometric_auth');
+          }
+        }}
+        onReject={() => {
+          // Rechazó los términos — volver al login y limpiar la sesión
+          setStudentData(null);
+          localStorage.removeItem('centinela_session');
+          setView('landing');
+        }}
       />
     );
   }
