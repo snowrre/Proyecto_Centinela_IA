@@ -49,8 +49,14 @@ import { useBiometric } from '../context/BiometricContext';
 //   • detector.maxSize: 256  — Reescala internamente a 256px antes de inferir.
 //     Reduce VRAM ~75% vs el valor por defecto (1024px). Suficiente para embeddings.
 //
+// COMPATIBILIDAD LAPTOP (Fix del 2026-08-18):
+//   Cambiado backend: 'webgl' → 'wasm' para que funcione en laptops sin GPU dedicada.
+//   Firefox en Linux suprime WebGL silenciosamente en tarjetas integradas, devolviendo
+//   result.face = [] sin lanzar error — el sistema queda en 0% para siempre.
+//   Con 'wasm' (CPU / WebAssembly), el análisis funciona en cualquier hardware.
+//
 const HUMAN_CONFIG = {
-  backend: 'webgl',
+  backend: 'wasm',      // CPU fallback — compatible con laptop sin GPU dedicada
   wasmPath: '/wasm/',
   modelBasePath: '/wasm/',
   debug: false,
@@ -263,6 +269,9 @@ export function useFaceDetection() {
 
     try {
       const result = await h.detect(el);
+      // 🔍 DIAGNÓSTICO #1 — ELIMINAR antes del despliegue final
+      console.log('1. ¿La IA ve mi cara?:', result?.face ? result.face.length : 0,
+        '| backend:', h.tf?.getBackend?.() ?? 'desconocido');
       return result;
     } catch (err) {
       // Errores de frame transitorios — no son fatales

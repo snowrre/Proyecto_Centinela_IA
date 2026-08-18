@@ -251,6 +251,12 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
         try {
           const result = await detectFaceInFrame(video);
 
+          // 🔍 DIAGNÓSTICO #2 — ELIMINAR antes del despliegue final
+          console.log('2. ¿Supabase me dio mi huella?:',
+            huellaGuardadaRef.current
+              ? `Sí ✅ (${huellaGuardadaRef.current.length} dims)`
+              : 'NO, está vacía ❌');
+
           // ✅ Detección exitosa — resetear contador de errores fatales
           fatalErrorCountRef.current = 0;
 
