@@ -351,6 +351,25 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
 
               setLivenessApproved(true);
               setUiPhase('success');
+
+              // 1. APAGAR LA MEMORIA DE LA IA 1
+              // Esto es vital para que deje de consumir WebGL/WASM en el fondo
+              if (window.__HUMAN_INSTANCE__) {
+                console.log("[BiometricAuth] ¡Identidad confirmada! Apagando IA de entrada...");
+                try {
+                  // Detiene todos los procesos internos de Human
+                  window.__HUMAN_INSTANCE__.dispose();
+                } catch (e) {
+                  console.warn('[BiometricAuth] Advertencia al apagar IA:', e);
+                }
+              }
+
+              // 2. APAGAR LA LUZ DE LA CÁMARA
+              if (videoRef.current && videoRef.current.srcObject) {
+                videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+                videoRef.current.srcObject = null;
+              }
+
               setTimeout(() => onSuccess?.(), 2000);
             });
           }

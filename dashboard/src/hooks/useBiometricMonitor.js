@@ -106,8 +106,8 @@ export function useBiometricMonitor() {
       // FIX: EL TRUCO MÁGICO. Borramos la memoria residual de la IA de la entrada (@vladmandic/human)
       // Esto evita el choque "abort(Module.noExitRuntime)" cuando MediaPipe intenta inicializarse
       if (typeof window !== 'undefined' && window.Module) {
-          window.Module = undefined;
-          console.log("[BioMonitor] Memoria WASM limpiada con éxito.");
+          delete window.Module; // Comando destructivo para purgar la memoria WASM
+          console.log("[BioMonitor] Memoria WASM purgada y lista.");
       }
 
       ort.env.wasm.numThreads = 4;
