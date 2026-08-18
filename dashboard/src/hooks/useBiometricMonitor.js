@@ -200,40 +200,47 @@ export function useBiometricMonitor() {
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
               
-              // 1. DETECCIÓN DE TERCEROS
-              if (result.face && result.face.length > 1) {
-                  currentPersonCount = result.face.length;
-                  activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
-              } 
-              // 2. ESTUDIANTE AUSENTE
-              else if (!result.face || result.face.length === 0) {
-                  currentPersonCount = 0;
-                  activeViolation = "ESTUDIANTE AUSENTE";
-              } 
-              // 3. ANÁLISIS DE MIRADA Y COMPORTAMIENTO
-              else {
-                  currentPersonCount = 1;
-                  const rostro = result.face[0];
-                  
-                  // Human devuelve radianes directamente
-                  yaw = Math.abs(rostro.rotation?.angle?.yaw || 0);
-                  pitch = rostro.rotation?.angle?.pitch || 0;
-
-                  // RELAJAMOS EL SENSOR: 0.65 radianes (aprox 37 grados)
-                  if (yaw > 0.65) {
-                      activeViolation = "MIRADA DESVIADA (LADOS)";
-                  } else if (pitch > 0.60) {
-                      activeViolation = "MIRADA DESVIADA (ABAJO)";
-                  }
-              }
-
-              // 4. DETECCIÓN DE CELULAR
-              if (!activeViolation && result.object && result.object.length > 0) {
-                  const celular = result.object.find(obj => obj.label === 'cell phone' || obj.label === 'smartphone');
-                  if (celular && celular.score > 0.50) {
+              // 1. SENSOR DE CELULARES (Prioridad Máxima)
+              if (result.object && result.object.length > 0) {
+                  const celular = result.object.find(obj => 
+                      obj.label === 'cell phone' || 
+                      obj.label === 'smartphone' ||
+                      obj.label === 'mobile phone'
+                  );
+                  if (celular && celular.score > 0.45) {
                       isPhoneDetected = true;
                       activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
                   }
+              }
+
+              // 2. SENSORES DE ROSTRO Y MIRADA (Solo si no hay celular detectado)
+              if (!activeViolation) {
+                  if (result.face && result.face.length > 1) {
+                      currentPersonCount = result.face.length;
+                      activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
+                  } 
+                  else if (!result.face || result.face.length === 0) {
+                      currentPersonCount = 0;
+                      activeViolation = "ESTUDIANTE AUSENTE";
+                  } 
+                  else {
+                      currentPersonCount = 1;
+                      const rostro = result.face[0];
+                      
+                      // Human devuelve radianes directamente
+                      yaw = Math.abs(rostro.rotation?.angle?.yaw || 0);
+                      pitch = rostro.rotation?.angle?.pitch || 0;
+
+                      // Ajuste perfecto: 0.45 (Aprox 25 grados). Detecta el giro antes de perder el rostro.
+                      if (yaw > 0.45) {
+                          activeViolation = "MIRADA DESVIADA (LADOS)";
+                      } else if (pitch > 0.45) {
+                          activeViolation = "MIRADA DESVIADA (ABAJO)";
+                      }
+                  }
+              } else {
+                  // Mantenemos la cuenta de personas actualizada aunque haya infracción de celular
+                  currentPersonCount = result.face ? result.face.length : 0;
               }
           }
 
