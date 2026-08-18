@@ -12,7 +12,8 @@ import * as ort from 'onnxruntime-web';
 // INYECTA ESTA LÍNEA PARA SOLUCIONAR EL ERROR DEL MAGIC WORD
 ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
 
-import { FaceLandmarker, FilesetResolver, DrawingUtils } from '@mediapipe/tasks-vision';
+// MOTOR UNIFICADO: Usamos Human en lugar de MediaPipe
+import { Human } from '@vladmandic/human';
 import { supabase } from '../lib/supabase';
 
 // ── CONSTANTES DE CONFIGURACIÓN ───────────────────────────────────────────────
@@ -25,7 +26,7 @@ const INFRACTION_TIME_LIMIT_MS = 3000;
 // 1. VARIABLES GLOBALES (SINGLETON) - ¡Fuera del hook de React!
 // =================================================================
 window.globalSession = window.globalSession || null;
-window.globalFaceLandmarker = window.globalFaceLandmarker || null;
+window.globalHumanMonitor = window.globalHumanMonitor || null;
 window.isInitializingAI = window.isInitializingAI || false;
 
 export function useBiometricMonitor() {
@@ -93,7 +94,7 @@ export function useBiometricMonitor() {
       while (window.isInitializingAI) {
         await new Promise(r => setTimeout(r, 100));
       }
-      if (window.globalSession && window.globalFaceLandmarker) {
+      if (window.globalSession && window.globalHumanMonitor) {
         engineReadyRef.current = true;
         return true;
       }
@@ -103,33 +104,40 @@ export function useBiometricMonitor() {
     try {
       console.log("[BioMonitor] Descargando modelos de visión...");
       
-      // FIX: EL TRUCO MÁGICO. Borramos la memoria residual de la IA de la entrada (@vladmandic/human)
-      // Esto evita el choque "abort(Module.noExitRuntime)" cuando MediaPipe intenta inicializarse
+      // Limpieza de memoria WASM
       if (typeof window !== 'undefined' && window.Module) {
-          delete window.Module; // Comando destructivo para purgar la memoria WASM
+          delete window.Module; 
           console.log("[BioMonitor] Memoria WASM purgada y lista.");
       }
 
       ort.env.wasm.numThreads = 4;
       window.globalSession = await ort.InferenceSession.create('/yolov8n.onnx', { executionProviders: ['wasm'] });
       
-      const filesetResolver = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
-      );
-      
-      window.globalFaceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-          baseOptions: {
-              modelAssetPath: "/face_landmarker.task",
-              delegate: "CPU" // VITAL: Evita colisión de WebGL en Firefox (error abort)
-          },
-          outputFaceBlendshapes: true,
-          runningMode: "VIDEO",
-          numFaces: 1
+      // Inicializar motor Human unificado
+      window.globalHumanMonitor = new Human({
+        backend: 'wasm', 
+        wasmPath: '/wasm/',
+        modelBasePath: '/wasm/',
+        debug: false,
+        face: {
+          enabled: true,
+          detector: { return: true, rotation: true },
+          mesh: { enabled: true },
+          iris: { enabled: true }, 
+          description: { enabled: false } // APAGADO: Ahorramos memoria, ya validamos identidad
+        },
+        body: { enabled: false },
+        hand: { enabled: false },
+        object: { enabled: false },
+        gesture: { enabled: false }
       });
+
+      await window.globalHumanMonitor.load();
+      await window.globalHumanMonitor.warmup();
 
       engineReadyRef.current = true;
       window.isInitializingAI = false; // Liberamos el candado global
-      console.log('[BioMonitor] ¡MediaPipe y YOLO inicializados con éxito!');
+      console.log('[BioMonitor] ¡Human y YOLO inicializados con éxito! Cero choques de memoria.');
       return true;
     } catch (err) {
       console.error('[BioMonitor] Error crítico al cargar la IA:', err);
@@ -281,35 +289,31 @@ export function useBiometricMonitor() {
           }
 
           // ========================================================
-          // LÓGICA MEDIAPIPE (HEAD POSE)
+          // LÓGICA HUMAN UNIFICADA (HEAD POSE)
           // ========================================================
           let yaw = 0;
           let pitch = 0;
 
-          if (window.globalFaceLandmarker) {
-              const results = window.globalFaceLandmarker.detectForVideo(videoElement, startTimeMs);
-              if (results.faceLandmarks && results.faceLandmarks.length > 0) {
-                  const drawingUtils = new DrawingUtils(canvasCtx);
-                  for (const landmarks of results.faceLandmarks) {
-                      drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, { color: "#C0C0C040", lineWidth: 1 });
-                      drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, { color: "#00FF00", lineWidth: 2 });
-                      drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, { color: "#00FF00", lineWidth: 2 });
-
-                      const w = canvasElement.width;
-                      const h = canvasElement.height;
-                      const leftEye = landmarks[33];
-                      const rightEye = landmarks[263];
-                      const topHead = landmarks[10];
-                      const bottomChin = landmarks[152];
-
-                      const deltaX_yaw = (rightEye.x - leftEye.x) * w;
-                      const deltaZ_yaw = (rightEye.z - leftEye.z) * w;
-                      yaw = Math.atan2(deltaZ_yaw, deltaX_yaw) * (180 / Math.PI);
-
-                      const deltaY_pitch = (bottomChin.y - topHead.y) * h;
-                      const deltaZ_pitch = (bottomChin.z - topHead.z) * w; 
-                      pitch = (Math.atan2(deltaZ_pitch, deltaY_pitch) * (180 / Math.PI)) + 13; 
+          if (window.globalHumanMonitor) {
+              const result = await window.globalHumanMonitor.detect(videoElement);
+              if (result.face && result.face.length > 0) {
+                  const rostro = result.face[0];
+                  
+                  if (rostro.rotation && rostro.rotation.angle) {
+                      // Human devuelve radianes, los convertimos a grados para la lógica existente
+                      pitch = rostro.rotation.angle.pitch * (180 / Math.PI);
+                      yaw = rostro.rotation.angle.yaw * (180 / Math.PI);
                   }
+
+                  // Opcional: Dibujar malla para feedback visual en el monitor
+                  window.globalHumanMonitor.draw.face(canvasElement, result.face, { 
+                      drawPoints: false, 
+                      drawPolygons: true, 
+                      drawGaze: true 
+                  });
+              } else {
+                  // Si no hay cara, podemos forzar los grados para trigger de "AUSENTE"
+                  // o dejar que YOLO detecte currentPersonCount = 0
               }
           }
 
@@ -413,10 +417,13 @@ export function useBiometricMonitor() {
     
     console.log('[BioMonitor] ⏹ Ciclo de monitoreo detenido. Liberando memoria WebGL...');
     
-    // 1. Apagamos el motor de MediaPipe para liberar la gráfica
-    if (window.globalFaceLandmarker) {
-        window.globalFaceLandmarker.close();
-        window.globalFaceLandmarker = null;
+    // 1. Apagamos el motor unificado
+    if (window.globalHumanMonitor) {
+        try {
+            // Detenemos los procesos en lugar de asignarlo a null sin limpiar
+            // window.globalHumanMonitor.dispose();
+            // Lo conservamos si es global para el proximo mount, o lo dejamos vivir
+        } catch(e) {}
     }
     
     // 2. Reiniciamos el candado
