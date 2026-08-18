@@ -921,7 +921,7 @@ export default function AdminDashboard({ darkMode }) {
           ) : (
             alertasBio.map((alerta) => {
               const cfg = getBioAlertConfig(alerta.tipo_anomalia);
-              const conf = Math.round((alerta.nivel_confianza || 0) * 100);
+              const conf = Math.round(alerta.nivel_confianza || 0);
               return (
                 <div
                   key={alerta.id}

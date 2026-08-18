@@ -7,12 +7,8 @@
 
 import { useRef, useCallback, useEffect } from 'react';
 import { useBiometric } from '../context/BiometricContext';
-import * as ort from 'onnxruntime-web';
 
-// INYECTA ESTA LÍNEA PARA SOLUCIONAR EL ERROR DEL MAGIC WORD
-ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
-
-// MOTOR UNIFICADO: Usamos Human en lugar de MediaPipe
+// MOTOR UNIFICADO: Usamos Human en lugar de MediaPipe y YOLO
 import { Human } from '@vladmandic/human';
 import { supabase } from '../lib/supabase';
 
@@ -110,9 +106,6 @@ export function useBiometricMonitor() {
           console.log("[BioMonitor] Memoria WASM purgada y lista.");
       }
 
-      ort.env.wasm.numThreads = 4;
-      window.globalSession = await ort.InferenceSession.create('/yolov8n.onnx', { executionProviders: ['wasm'] });
-      
       // Inicializar motor Human unificado
       window.globalHumanMonitor = new Human({
         backend: 'wasm', 
@@ -128,7 +121,7 @@ export function useBiometricMonitor() {
         },
         body: { enabled: false },
         hand: { enabled: false },
-        object: { enabled: false },
+        object: { enabled: true }, // ACTIVADO: Para detectar celulares sin YOLO
         gesture: { enabled: false }
       });
 
@@ -197,147 +190,51 @@ export function useBiometricMonitor() {
 
           let currentPersonCount = 0;
           let isPhoneDetected = false;
-
-          // ========================================================
-          // LÓGICA YOLOv8 (LETTERBOXING)
-          // ========================================================
-          if (window.globalSession) {
-            const yoloSize = 640;
-            const canvasYolo = document.createElement('canvas');
-            canvasYolo.width = yoloSize;
-            canvasYolo.height = yoloSize;
-            const ctxYolo = canvasYolo.getContext('2d', { willReadFrequently: true });
-
-            const vWidth = videoElement.videoWidth;
-            const vHeight = videoElement.videoHeight;
-            
-            const scale = Math.min(yoloSize / vWidth, yoloSize / vHeight);
-            const newWidth = vWidth * scale;
-            const newHeight = vHeight * scale;
-            
-            const padX = (yoloSize - newWidth) / 2;
-            const padY = (yoloSize - newHeight) / 2;
-
-            ctxYolo.fillStyle = '#000000';
-            ctxYolo.fillRect(0, 0, yoloSize, yoloSize);
-            ctxYolo.drawImage(videoElement, padX, padY, newWidth, newHeight);
-            
-            const imgData = ctxYolo.getImageData(0, 0, yoloSize, yoloSize);
-            const input = new Float32Array(1 * 3 * yoloSize * yoloSize);
-            for (let i = 0; i < imgData.data.length / 4; i++) {
-                input[i] = imgData.data[i * 4] / 255.0;
-                input[i + yoloSize * yoloSize] = imgData.data[i * 4 + 1] / 255.0;
-                input[i + 2 * yoloSize * yoloSize] = imgData.data[i * 4 + 2] / 255.0;
-            }
-            const tensor = new ort.Tensor('float32', input, [1, 3, yoloSize, yoloSize]);
-
-            try {
-                const results = await window.globalSession.run({ images: tensor }); 
-                const output = results[Object.keys(results)[0]].data; 
-                
-                let rawBoxes = [];
-                const numBoxes = 8400; 
-                const numClasses = 80;
-
-                for (let i = 0; i < numBoxes; i++) {
-                    let maxConf = 0;
-                    let classId = -1;
-                    for (let c = 0; c < numClasses; c++) {
-                        const conf = output[(4 + c) * numBoxes + i];
-                        if (conf > maxConf) { maxConf = conf; classId = c; }
-                    }
-
-                    if (maxConf > 0.50) {
-                        const xc = output[0 * numBoxes + i];
-                        const yc = output[1 * numBoxes + i];
-                        const w = output[2 * numBoxes + i];
-                        const h = output[3 * numBoxes + i];
-                        rawBoxes.push({
-                            x: xc - w / 2, y: yc - h / 2, w: w, h: h, confidence: maxConf, classId: classId
-                        });
-                    }
-                }
-
-                const finalBoxes = nms(rawBoxes, 0.45);
-                
-                finalBoxes.forEach(box => {
-                    if (box.classId === 0 || box.classId === 67) { 
-                        if (box.classId === 0) currentPersonCount++;
-                        if (box.classId === 67) isPhoneDetected = true;
-                        
-                        // IA INVISIBLE: Comentamos todo el código de pintado (cajas y etiquetas)
-                        // para que el estudiante no se distraiga ni "juegue" con la detección.
-                        /*
-                        const unpaddedX = (box.x - padX) / scale;
-                        const unpaddedY = (box.y - padY) / scale;
-                        const unpaddedW = box.w / scale;
-                        const unpaddedH = box.h / scale;
-
-                        canvasCtx.strokeStyle = box.classId === 67 ? '#FF0000' : '#00FF00';
-                        canvasCtx.lineWidth = 3;
-                        canvasCtx.strokeRect(unpaddedX, unpaddedY, unpaddedW, unpaddedH);
-
-                        canvasCtx.fillStyle = box.classId === 67 ? '#FF0000' : '#00FF00';
-                        canvasCtx.font = "18px monospace";
-                        
-                        canvasCtx.save();
-                        canvasCtx.translate(unpaddedX + unpaddedW, unpaddedY);
-                        canvasCtx.scale(-1, 1);
-                        const label = `${classNames[box.classId] || 'Obj'} ${Math.round(box.confidence * 100)}%`;
-                        canvasCtx.fillText(label, 0, -5);
-                        canvasCtx.restore();
-                        */
-                    }
-                });
-            } catch (error) { console.error("Error YOLOv8:", error); }
-          }
-
-          // ========================================================
-          // LÓGICA HUMAN UNIFICADA (HEAD POSE)
-          // ========================================================
           let yaw = 0;
           let pitch = 0;
-
-          if (window.globalHumanMonitor) {
-              const result = await window.globalHumanMonitor.detect(videoElement);
-              if (result.face && result.face.length > 0) {
-                  const rostro = result.face[0];
-                  
-                  if (rostro.rotation && rostro.rotation.angle) {
-                      // Human devuelve radianes, los convertimos a grados para la lógica existente
-                      pitch = rostro.rotation.angle.pitch * (180 / Math.PI);
-                      yaw = rostro.rotation.angle.yaw * (180 / Math.PI);
-                  }
-
-                  // IA INVISIBLE: Desactivamos el dibujado de la malla facial
-                  /*
-                  window.globalHumanMonitor.draw.face(canvasElement, result.face, { 
-                      drawPoints: false, 
-                      drawPolygons: true, 
-                      drawGaze: true 
-                  });
-                  */
-              } else {
-                  // Si no hay cara, podemos forzar los grados para trigger de "AUSENTE"
-                  // o dejar que YOLO detecte currentPersonCount = 0
-              }
-          }
-
-          // ========================================================
-          // MOTOR DE REGLAS (MÁQUINA DE ESTADOS)
-          // ========================================================
           let activeViolation = null;
 
-          if (isPhoneDetected) {
-              activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
-          } else if (currentPersonCount > 1) {
-              activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
-          } else if (currentPersonCount === 0) {
-              activeViolation = "ESTUDIANTE AUSENTE";
-          } else if (yaw > YAW_THRESHOLD || yaw < -YAW_THRESHOLD) {
-              activeViolation = "MIRADA DESVIADA (LADOS)";
-          } else if (pitch > PITCH_THRESHOLD) {
-              activeViolation = "MIRADA DESVIADA (ABAJO)";
+          // ========================================================
+          // LÓGICA HUMAN UNIFICADA (Rostros, Ángulos y Objetos)
+          // ========================================================
+          if (window.globalHumanMonitor) {
+              const result = await window.globalHumanMonitor.detect(videoElement);
+              
+              // 1. DETECCIÓN DE TERCEROS
+              if (result.face && result.face.length > 1) {
+                  currentPersonCount = result.face.length;
+                  activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
+              } 
+              // 2. ESTUDIANTE AUSENTE
+              else if (!result.face || result.face.length === 0) {
+                  currentPersonCount = 0;
+                  activeViolation = "ESTUDIANTE AUSENTE";
+              } 
+              // 3. ANÁLISIS DE MIRADA Y COMPORTAMIENTO
+              else {
+                  currentPersonCount = 1;
+                  const rostro = result.face[0];
+                  
+                  // Human devuelve radianes directamente
+                  yaw = Math.abs(rostro.rotation?.angle?.yaw || 0);
+                  pitch = rostro.rotation?.angle?.pitch || 0;
+
+                  // RELAJAMOS EL SENSOR: 0.65 radianes (aprox 37 grados)
+                  if (yaw > 0.65) {
+                      activeViolation = "MIRADA DESVIADA (LADOS)";
+                  } else if (pitch > 0.60) {
+                      activeViolation = "MIRADA DESVIADA (ABAJO)";
+                  }
+              }
+
+              // 4. DETECCIÓN DE CELULAR
+              if (!activeViolation && result.object && result.object.length > 0) {
+                  const celular = result.object.find(obj => obj.label === 'cell phone' || obj.label === 'smartphone');
+                  if (celular && celular.score > 0.50) {
+                      isPhoneDetected = true;
+                      activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
+                  }
+              }
           }
 
           const currentTimeMs = performance.now();
@@ -368,7 +265,7 @@ export function useBiometricMonitor() {
                             grados_pitch: parseFloat(pitch.toFixed(2)),
                             personas_detectadas: currentPersonCount,
                             celular_detectado: isPhoneDetected,
-                            motor_ia: isPhoneDetected || currentPersonCount !== 1 ? 'YOLOv8' : 'MediaPipe'
+                            motor_ia: 'Human Edge AI Unificado'
                           };
                           enviarTelemetria(estudianteId, currentInfractionRef.current, detalles, 1.0);
                       }
