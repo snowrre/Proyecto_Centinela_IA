@@ -943,7 +943,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                       muted 
                       className="w-full h-full object-cover transform scale-x-[-1]"
                     />
-                    <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full z-10 pointer-events-none transform scale-x-[-1]" />
+                    <canvas ref={canvasRef} className="hidden" />
                     <div className="absolute top-2 left-2 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
                       🔴 CENTINELA LIVE
                     </div>
@@ -956,50 +956,12 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                       </div>
                     )}
 
-                    {/* Badge de estado flotante según nivel de sospecha */}
-                    {suspicionScore >= 20 && (
-                      <div className={`absolute top-2 right-2 px-3 py-1 rounded text-white font-bold text-xs shadow-md animate-pulse ${
-                        suspicionScore < 85 ? 'bg-yellow-500' : 'bg-red-600'
-                      }`}>
-                        {suspicionScore < 85
-                          ? 'PRECAUCIÓN'
-                          : `ALERTA: ${lastAlertMessage || 'Comportamiento indebido'}`}
-                      </div>
-                    )}
+                    {/* IA INVISIBLE: Badge de estado flotante eliminado para no alertar al estudiante */}
                   </div>
 
 
-                  
-                  <div className="pt-8 border-t border-neutral-100 dark:border-white/5">
-                      <div className="flex items-center justify-between mb-6">
-                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Alertas de IA</span>
-                        <span className="text-[10px] font-black text-emerald-500 uppercase flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                            Activo
-                        </span>
-                      </div>
-                      <div className="space-y-4">
-                          {alerts.length === 0 ? (
-                              <div className="flex items-center gap-3 p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-600">
-                                <CheckCircle2 className="w-5 h-5" />
-                                <span className="text-[10px] font-black uppercase">Sin Incidentes</span>
-                              </div>
-                          ) : (
-                              alerts.map((a, i) => (
-                                <motion.div key={i} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex items-start gap-4 p-4 rounded-2xl bg-red-500/5 border border-red-500/10">
-                                    <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className="text-[10px] font-black text-red-600 uppercase">{a.type}</span>
-                                            {a.type === 'RUIDO_DETECTADO' && <Mic className="w-3 h-3 text-red-500 animate-pulse" />}
-                                        </div>
-                                        <p className="text-[10px] text-neutral-500 leading-tight font-medium">{a.message}</p>
-                                    </div>
-                                </motion.div>
-                              ))
-                          )}
-                      </div>
-                  </div>
+                  {/* IA INVISIBLE: El panel de Alertas de IA fue eliminado.
+                      El monitoreo continúa en segundo plano y se reporta a Supabase. */}
                 </div>
               </div>
 

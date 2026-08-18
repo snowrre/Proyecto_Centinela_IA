@@ -265,6 +265,9 @@ export function useBiometricMonitor() {
                         if (box.classId === 0) currentPersonCount++;
                         if (box.classId === 67) isPhoneDetected = true;
                         
+                        // IA INVISIBLE: Comentamos todo el código de pintado (cajas y etiquetas)
+                        // para que el estudiante no se distraiga ni "juegue" con la detección.
+                        /*
                         const unpaddedX = (box.x - padX) / scale;
                         const unpaddedY = (box.y - padY) / scale;
                         const unpaddedW = box.w / scale;
@@ -283,6 +286,7 @@ export function useBiometricMonitor() {
                         const label = `${classNames[box.classId] || 'Obj'} ${Math.round(box.confidence * 100)}%`;
                         canvasCtx.fillText(label, 0, -5);
                         canvasCtx.restore();
+                        */
                     }
                 });
             } catch (error) { console.error("Error YOLOv8:", error); }
@@ -305,12 +309,14 @@ export function useBiometricMonitor() {
                       yaw = rostro.rotation.angle.yaw * (180 / Math.PI);
                   }
 
-                  // Opcional: Dibujar malla para feedback visual en el monitor
+                  // IA INVISIBLE: Desactivamos el dibujado de la malla facial
+                  /*
                   window.globalHumanMonitor.draw.face(canvasElement, result.face, { 
                       drawPoints: false, 
                       drawPolygons: true, 
                       drawGaze: true 
                   });
+                  */
               } else {
                   // Si no hay cara, podemos forzar los grados para trigger de "AUSENTE"
                   // o dejar que YOLO detecte currentPersonCount = 0
@@ -386,7 +392,9 @@ export function useBiometricMonitor() {
             timestamp: Date.now(),
           });
 
-          // Dibujar Estado UI en Canvas
+          // IA INVISIBLE: Desactivamos el panel HUD del canvas (Status, Yaw, Pitch)
+          // Esto evita que el estudiante intente "medir" los límites del sistema.
+          /*
           canvasCtx.fillStyle = statusColor;
           canvasCtx.font = "bold 20px monospace";
           canvasCtx.save();
@@ -399,6 +407,7 @@ export function useBiometricMonitor() {
           canvasCtx.fillText(`Yaw: ${yaw.toFixed(1)}° | Pitch: ${pitch.toFixed(1)}°`, 20, 70);
           canvasCtx.fillText(`Personas: ${currentPersonCount} | Celular: ${isPhoneDetected ? 'SI' : 'NO'}`, 20, 90);
           canvasCtx.restore();
+          */
         }
       }
       
