@@ -260,6 +260,22 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
           // ✅ Detección exitosa — resetear contador de errores fatales
           fatalErrorCountRef.current = 0;
 
+          // 🔍 DIAGNÓSTICO #3 y #4 — ELIMINAR antes del despliegue final
+          if (result?.face && result.face.length > 0) {
+            const rostroActual = result.face[0];
+            console.log("3. Giro de cabeza (pitch, yaw):", rostroActual.rotation?.angle?.pitch, rostroActual.rotation?.angle?.yaw);
+            
+            if (rostroActual.embedding && huellaGuardadaRef.current) {
+              const h = window.__HUMAN_INSTANCE__;
+              try {
+                const similitud = h.match.similarity(rostroActual.embedding, huellaGuardadaRef.current);
+                console.log("4. Porcentaje de Similitud de Identidad:", similitud);
+              } catch (e) {
+                console.log("4. Error calculando similitud:", e.message);
+              }
+            }
+          }
+
           if (result && !successRef.current) {
             // ── Pintar la malla facial sobre el canvas transparente ────────────
             if (canvas && result.face.length > 0) {
