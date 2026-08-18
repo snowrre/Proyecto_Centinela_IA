@@ -87,6 +87,11 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
   const [errorMsg, setErrorMsg]     = useState('');
   const [loadingStep, setLoadingStep] = useState(0);
 
+  // ── Huella biométrica de referencia descargada de Supabase ─────────────────
+  // Ref (no state) para acceso síncrono dentro del RAF loop sin stale-closure.
+  const huellaGuardadaRef = useRef(null);
+  const UMBRAL_SIMILITUD  = 0.55; // >= 0.55 → mismo alumno, < 0.55 → impostor
+
   // ── BOOTSTRAP: Cargar modelos → cámara → iniciar reto ──────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +108,29 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
         return;
       }
       setLoadingStep(3);
+
+      // ── FILTRO DE IDENTIDAD: Descargar huella de referencia de Supabase ──────
+      // Si el alumno tiene biometria_registrada=true, comparamos su embedding
+      // guardado contra el rostro capturado en el reto. Si no coincide → bloqueo.
+      if (studentInfo?.matricula) {
+        try {
+          const { data: alumnoRow } = await supabase
+            .from('alumnos')
+            .select('huella_biometrica')
+            .eq('matricula', studentInfo.matricula)
+            .maybeSingle();
+
+          if (alumnoRow?.huella_biometrica) {
+            huellaGuardadaRef.current = alumnoRow.huella_biometrica;
+            console.log('[BiometricAuth] ✅ Huella de referencia descargada (' +
+              alumnoRow.huella_biometrica.length + ' dims).');
+          } else {
+            console.warn('[BiometricAuth] ⚠️ Sin huella guardada — solo prueba de vida.');
+          }
+        } catch (err) {
+          console.warn('[BiometricAuth] No se pudo descargar la huella:', err);
+        }
+      }
 
       setUiPhase('starting_camera');
       try {
@@ -243,12 +271,43 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
             // ── Analizar gestos del frame ──────────────────────────────────────
             analyzeFrame(result, async (embedding) => {
               if (successRef.current) return;
+
+              // 🔒 FILTRO DE IDENTIDAD ("Filtro Papá")
+              // Si hay huella guardada, comparamos el embedding actual contra ella.
+              // Si no coincide → Fail-Closed. NUNCA se llama onSuccess().
+              if (huellaGuardadaRef.current && embedding) {
+                const h = window.__HUMAN_INSTANCE__;
+                let similitud = 0;
+                try {
+                  similitud = h.match.similarity(embedding, huellaGuardadaRef.current);
+                  console.log(`[BiometricAuth] 🧠 Similitud: ${(similitud * 100).toFixed(1)}% (umbral: ${UMBRAL_SIMILITUD * 100}%)`);
+                } catch (matchErr) {
+                  console.error('[BiometricAuth] Error en match.similarity:', matchErr);
+                  similitud = 0; // Fail-Closed si la comparación falla
+                }
+
+                if (similitud < UMBRAL_SIMILITUD) {
+                  // ⛔ IMPOSTOR DETECTADO — bloquear completamente
+                  successRef.current = true;
+                  stopRafLoop();
+                  setErrorMsg(
+                    `⚠️ Identidad no verificada (similitud: ${(similitud * 100).toFixed(0)}%). ` +
+                    `El rostro detectado no coincide con el alumno registrado. ` +
+                    `Contacta a tu docente si crees que esto es un error.`
+                  );
+                  setUiPhase('error');
+                  onError?.('IDENTITY_MISMATCH');
+                  return; // ← NUNCA se llama onSuccess()
+                }
+              }
+
+              // ✅ Identidad verificada (o sin huella de referencia → solo prueba de vida)
               successRef.current = true;
               stopRafLoop();
 
               setRostroMaestro(embedding);
 
-              // ── NUEVO: Persistencia de Huella Maestra en Supabase ────────────
+              // ── Persistencia de Huella Maestra en Supabase (exam_sessions) ────
               try {
                 if (studentInfo?.matricula && (studentInfo?.roomCode || studentInfo?.pin)) {
                   const pin = studentInfo.roomCode || studentInfo.pin;
