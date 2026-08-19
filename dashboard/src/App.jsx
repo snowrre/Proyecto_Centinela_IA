@@ -241,8 +241,8 @@ export default function App() {
         <nav className="flex-1 px-6 py-4 space-y-2">
           <SidebarItem active={teacherTab === 'monitor'} onClick={() => setTeacherTab('monitor')} icon={<BarChart3 className="w-4 h-4" />} label="Monitoreo" dark={darkMode} />
           <SidebarItem active={teacherTab === 'creator'} onClick={() => setTeacherTab('creator')} icon={<PlusSquare className="w-4 h-4" />} label="Crear Examen" dark={darkMode} />
-          <SidebarItem icon={<Users className="w-4 h-4" />} label="Estudiantes" dark={darkMode} />
-          <SidebarItem icon={<Settings className="w-4 h-4" />} label="Ajustes" dark={darkMode} />
+          {/* <SidebarItem icon={<Users className="w-4 h-4" />} label="Estudiantes" dark={darkMode} /> */}
+          {/* <SidebarItem icon={<Settings className="w-4 h-4" />} label="Ajustes" dark={darkMode} /> */}
         </nav>
 
         <div className="p-8 border-t dark:border-white/10">
