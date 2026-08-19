@@ -36,6 +36,18 @@ export default function App() {
     if (new URLSearchParams(window.location.search).get('session_id')) {
       return 'procesar_pago';
     }
+
+    try {
+      if (localStorage.getItem('centinela_teacher') === 'true') {
+        return 'teacher_dashboard';
+      }
+      if (localStorage.getItem('centinela_session')) {
+        return 'student_portal';
+      }
+    } catch (e) {
+      // Ignorar errores de localStorage
+    }
+
     return 'marketing';
   });
   const [teacherTab, setTeacherTab] = useState(() => localStorage.getItem('centinela_tab') || 'monitor');
@@ -68,6 +80,7 @@ export default function App() {
     // Ghost-Session Fix: borrar la sesión del localStorage para que el ex-alumno
     // no quede "fantasma" disparando alertas desde el Login si vuelve a la app.
     localStorage.removeItem('centinela_session');
+    localStorage.removeItem('centinela_teacher');
   };
 
   // ── PANTALLA DE BLOQUEO: Dispositivo no permitido ───────────────────────
@@ -112,7 +125,10 @@ export default function App() {
   if (view === 'landing') {
     return (
       <LoginLanding 
-        onLoginTeacher={() => setView('teacher_dashboard')} 
+        onLoginTeacher={() => {
+          localStorage.setItem('centinela_teacher', 'true');
+          setView('teacher_dashboard');
+        }} 
         onLoginStudent={async (data) => {
           setStudentData(data);
 
