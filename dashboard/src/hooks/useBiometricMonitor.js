@@ -69,7 +69,9 @@ export function useBiometricMonitor() {
     try {
       const { error } = await supabase.from('telemetria_examenes').insert([payload]);
       if (error) throw error;
-      console.warn(`[BioMonitor] 🚨 Telemetría enviada → ${tipoAnomalia}`, payload);
+      
+      // IA SILENCIOSA: Ocultamos el log de telemetría para evitar ingeniería inversa por parte del alumno
+      // console.warn(`[BioMonitor] 🚨 Telemetría enviada → ${tipoAnomalia}`, payload);
     } catch (err) {
       console.error('[BioMonitor] Fallo al enviar telemetría:', err);
     }
@@ -121,7 +123,12 @@ export function useBiometricMonitor() {
         },
         body: { enabled: false },
         hand: { enabled: false },
-        object: { enabled: true, maxSize: 256 }, // ACTIVADO: Para detectar celulares sin YOLO y ultrarrápido
+        object: { 
+          enabled: true, 
+          // QUITAMOS el maxSize para que vea el celular en Alta Resolución
+          // Bajamos la confianza interna a 20% para que sea ultra sensible
+          minConfidence: 0.2 
+        }, 
         gesture: { enabled: false }
       });
 
