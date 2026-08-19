@@ -137,6 +137,40 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
     isDeadRef.current = isExpelled;
   }, [isExpelled]);
 
+  // LA TRAMPA: Suscripción a expulsiones en tiempo real enviadas por el profesor
+  useEffect(() => {
+    const matricula = formData.matricula || studentData?.matricula;
+    if (!matricula) return;
+
+    const suscripcion = supabase
+      .channel('vigilancia-profesor')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'alumnos',
+          filter: `matricula=eq.${matricula}`
+        },
+        (payload) => {
+          if (payload.new.comando === 'EXPULSAR') {
+             toast.error("🚨 HAS SIDO BLOQUEADO Y EXPULSADO DEL EXAMEN POR EL DOCENTE 🚨", { duration: 10000 });
+             setIsExpelled(true);
+             setTimeout(() => {
+               localStorage.clear(); 
+               if (onExit) onExit();
+               window.location.reload(); 
+             }, 3000);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(suscripcion);
+    };
+  }, [formData.matricula, studentData, onExit]);
+
   useEffect(() => {
     matriculaRef.current = formData?.matricula || studentData?.matricula || '';
     pinRef.current = formData?.pin || studentData?.pin || studentData?.roomCode || '';

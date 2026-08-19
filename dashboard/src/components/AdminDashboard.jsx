@@ -199,6 +199,34 @@ export default function AdminDashboard({ darkMode }) {
     });
   };
 
+  // LA FUNCIÓN DESTRUCTIVA: Expulsa al alumno
+  const bloquearAlumno = async (matricula) => {
+    // 1. Confirmación de seguridad (para evitar clics por accidente)
+    const confirmar = window.confirm(`⚠️ ¿Estás seguro de bloquear y expulsar al alumno con matrícula ${matricula}?`);
+    if (!confirmar) return;
+
+    try {
+      // 2. Actualizamos la base de datos
+      const { error } = await supabase
+        .from('alumnos') 
+        .update({ 
+            comando: 'EXPULSAR', 
+            estado_examen: 'BLOQUEADO' 
+        })
+        .eq('matricula', matricula);
+
+      if (error) throw error;
+      toast.success(`Alumno ${matricula} bloqueado y expulsado con éxito.`, {
+        icon: '🛑',
+        style: { borderRadius: '10px', background: '#333', color: '#fff' }
+      });
+      
+    } catch (error) {
+      console.error("Error al bloquear al alumno:", error);
+      toast.error("Hubo un error al intentar bloquear al alumno.");
+    }
+  };
+
   const promptClearAll = () => {
     setConfirmModal({
       isOpen: true,
@@ -959,6 +987,19 @@ export default function AdminDashboard({ darkMode }) {
                         />
                       </div>
                     )}
+                    
+                    {/* BOTÓN DE BLOQUEO DOCENTE EN TIEMPO REAL */}
+                    {alerta.estudiante_id && (
+                      <button 
+                        onClick={() => bloquearAlumno(alerta.estudiante_id)}
+                        className="mt-3 w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 flex justify-center items-center gap-2 text-xs"
+                      >
+                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                        </svg>
+                        Bloquear Alumno
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -1139,7 +1180,7 @@ export default function AdminDashboard({ darkMode }) {
                               {/* Botón de Expulsión contextual — aparece en críticos Y en abandonos/fullscreen */}
                               {(isCritical || isWarning) && log.matricula && (
                                 <button
-                                  onClick={() => confirmKick(log.matricula)}
+                                  onClick={() => bloquearAlumno(log.matricula)}
                                   className="mt-3 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs font-semibold rounded-lg shadow-md hover:shadow-red-500/40 hover:shadow-lg transform transition-all duration-200 hover:scale-[1.03] active:scale-95 border border-red-400/30"
                                 >
                                   <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
