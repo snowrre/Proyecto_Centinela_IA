@@ -1065,24 +1065,27 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                                 </div>
                                 {q.options && q.options.length > 0 ? (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-16">
-                                        {q.options.map(opt => (
-                                            <button 
-                                                key={opt.id} 
-                                                onClick={() => setSelectedAnswers(prev => ({ ...prev, [idx]: opt.id }))}
-                                                className={cn("text-left p-5 rounded-[20px] border-2 transition-all flex items-center gap-4 group",
-                                                    selectedAnswers[idx] === opt.id 
-                                                        ? "border-blue-600 bg-blue-600/5" 
-                                                        : "border-neutral-100 dark:border-white/5 hover:border-blue-600 hover:bg-blue-600/5")}
-                                            >
-                                                <div className={cn("w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors",
-                                                    selectedAnswers[idx] === opt.id 
-                                                        ? "border-blue-600 bg-blue-600 text-white" 
-                                                        : "border-neutral-300 dark:border-neutral-700 group-hover:border-blue-600 text-neutral-400 group-hover:text-blue-600")}>
-                                                    <span className={cn("text-[10px] font-black uppercase", selectedAnswers[idx] === opt.id ? "text-white" : "text-neutral-400 group-hover:text-blue-600")}>{opt.id}</span>
-                                                </div>
-                                                <span className="text-sm font-bold">{opt.text}</span>
-                                            </button>
-                                        ))}
+                                        {q.options.map((opt, oIdx) => {
+                                            const letra = String.fromCharCode(65 + oIdx); // 65 es 'A' en ASCII
+                                            return (
+                                                <button 
+                                                    key={opt.id} 
+                                                    onClick={() => setSelectedAnswers(prev => ({ ...prev, [idx]: opt.id }))}
+                                                    className={cn("text-left p-5 rounded-[20px] border-2 transition-all flex items-center gap-4 group",
+                                                        selectedAnswers[idx] === opt.id 
+                                                            ? "border-blue-600 bg-blue-600/5" 
+                                                            : "border-neutral-100 dark:border-white/5 hover:border-blue-600 hover:bg-blue-600/5")}
+                                                >
+                                                    <div className={cn("w-6 h-6 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors",
+                                                        selectedAnswers[idx] === opt.id 
+                                                            ? "border-blue-600 bg-blue-600 text-white" 
+                                                            : "border-neutral-300 dark:border-neutral-700 group-hover:border-blue-600 text-neutral-400 group-hover:text-blue-600")}>
+                                                        <span className={cn("text-[10px] font-black uppercase", selectedAnswers[idx] === opt.id ? "text-white" : "text-neutral-400 group-hover:text-blue-600")}>{letra}</span>
+                                                    </div>
+                                                    <span className="text-sm font-bold">{opt.text}</span>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 ) : (
                                     <div className="ml-16">
