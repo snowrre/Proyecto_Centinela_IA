@@ -201,29 +201,36 @@ export default function AdminDashboard({ darkMode }) {
 
   // LA FUNCIÓN DESTRUCTIVA: Expulsa al alumno
   const bloquearAlumno = async (matricula) => {
-    // 1. Confirmación de seguridad (para evitar clics por accidente)
-    const confirmar = window.confirm(`⚠️ ¿Estás seguro de bloquear y expulsar al alumno con matrícula ${matricula}?`);
+    const confirmar = window.confirm(`🚨 ¿Estás seguro de cancelar el examen y expulsar al alumno ${matricula}?`);
     if (!confirmar) return;
 
     try {
-      // 2. Actualizamos la base de datos
-      const { error } = await supabase
-        .from('alumnos') 
-        .update({ 
-            comando: 'EXPULSAR', 
-            estado_examen: 'BLOQUEADO' 
-        })
-        .eq('matricula', matricula);
-
-      if (error) throw error;
-      toast.success(`Alumno ${matricula} bloqueado y expulsado con éxito.`, {
-        icon: '🛑',
-        style: { borderRadius: '10px', background: '#333', color: '#fff' }
-      });
+      console.log(`Intentando expulsar al alumno: ${matricula}...`);
       
-    } catch (error) {
-      console.error("Error al bloquear al alumno:", error);
-      toast.error("Hubo un error al intentar bloquear al alumno.");
+      // ⚠️ OJO AQUÍ: 'alumnos' debe ser el nombre EXACTO de la tabla 
+      // donde guardas si un alumno está activo o no. (Podría llamarse 'usuarios', 'sesiones', etc.)
+      const { data, error } = await supabase
+        .from('alumnos') 
+        .update({ comando: 'EXPULSAR' })
+        .eq('matricula', matricula)
+        .select(); // El select() nos confirma si realmente editó la fila
+
+      if (error) {
+        // Si Supabase lo bloquea, esto nos dirá por qué (Ej. Error de RLS)
+        console.error("Supabase rechazó la expulsión:", error.message);
+        alert(`Error de base de datos: ${error.message}`);
+        return;
+      }
+
+      if (data && data.length === 0) {
+        alert("No se encontró al alumno en la tabla. Revisa el nombre de la tabla.");
+        return;
+      }
+
+      alert("✅ Comando de expulsión enviado. El alumno será desconectado.");
+      
+    } catch (err) {
+      console.error("Error crítico en el botón:", err);
     }
   };
 

@@ -70,6 +70,15 @@ export function useBiometricMonitor() {
       const { error } = await supabase.from('telemetria_examenes').insert([payload]);
       if (error) throw error;
       
+      // INSERCIÓN DUAL: Mandamos la misma alerta a la tabla general para que 
+      // aparezca en la barra lateral del profesor.
+      await supabase.from('camera_logs').insert([{
+        matricula: estudianteId,
+        event_type: 'CRÍTICO', // La marcamos como crítica para que salga en rojo
+        description: `IA DETECTA: ${tipoAnomalia} (${(nivelConfianza * 100).toFixed(0)}%)`,
+        created_at: payload.creado_en
+      }]);
+
       // IA SILENCIOSA: Ocultamos el log de telemetría para evitar ingeniería inversa por parte del alumno
       // console.warn(`[BioMonitor] 🚨 Telemetría enviada → ${tipoAnomalia}`, payload);
     } catch (err) {
