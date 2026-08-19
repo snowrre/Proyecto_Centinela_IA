@@ -207,18 +207,16 @@ export function useBiometricMonitor() {
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
               
-              // 1. SENSOR DE CELULARES (Ultra sensible y silencioso)
+              // 1. SENSOR DE CELULARES Y PANTALLAS (Ultra sensible y silencioso)
               if (result.object && result.object.length > 0) {
-                  const celular = result.object.find(obj => 
-                      obj.label === 'cell phone' || 
-                      obj.label === 'smartphone' ||
-                      obj.label === 'remote' || // Conservamos remote por si lo confunde
-                      obj.label === 'mobile phone'
+                  // Buscamos cualquier tipo de dispositivo que se parezca a un celular o pantalla
+                  const dispositivo = result.object.find(obj => 
+                      ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop'].includes(obj.label)
                   );
                   
                   // ¡LA CLAVE ESTÁ AQUÍ! Bajamos el umbral a 15% (0.15) 
-                  // porque un teléfono de espaldas marca ~20-27%
-                  if (celular && celular.score > 0.15) {
+                  // porque un teléfono de espaldas o pantalla encendida marca ~20-27%
+                  if (dispositivo && dispositivo.score > 0.15) {
                       isPhoneDetected = true;
                       activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
                   }
@@ -271,7 +269,10 @@ export function useBiometricMonitor() {
               } else {
                   const elapsedSeconds = (currentTimeMs - infractionStartMsRef.current) / 1000;
                   
-                  if (elapsedSeconds >= 3.0) {
+                  // Los dispositivos son cero tolerancia (0.0s). Otras infracciones tienen 3.0s de gracia.
+                  const requiredTime = currentInfractionRef.current === "USO DE DISPOSITIVO NO AUTORIZADO" ? 0.0 : 3.0;
+                  
+                  if (elapsedSeconds >= requiredTime) {
                       statusColor = "#FF0000"; 
                       statusText = `🚨 INFRACCIÓN: ${currentInfractionRef.current}`;
                       currentScore = 100;
