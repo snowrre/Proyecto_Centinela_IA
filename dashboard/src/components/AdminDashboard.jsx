@@ -236,6 +236,40 @@ export default function AdminDashboard({ darkMode }) {
     }
   };
 
+  // 1. Función para borrar UNA sola alerta
+  const borrarAlerta = async (idAlerta) => {
+    try {
+      const { error } = await supabase
+        .from('telemetria_examenes')
+        .delete()
+        .eq('id', idAlerta);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error("Error al borrar la alerta:", error);
+      alert("Error al borrar: " + error.message);
+    }
+  };
+
+  // 2. Función para vaciar TODO el historial biométrico
+  const vaciarHistorial = async () => {
+    const confirmar = window.confirm("⚠️ ¿Estás seguro de que quieres eliminar TODAS las alertas biométricas? Esta acción no se puede deshacer.");
+    if (!confirmar) return;
+
+    try {
+      const { error } = await supabase
+        .from('telemetria_examenes')
+        .delete()
+        .not('id', 'is', null); 
+
+      if (error) throw error;
+    } catch (error) {
+      console.error("Error al vaciar el historial:", error);
+      alert("Error al limpiar historial: " + error.message);
+    }
+  };
+
+
   const promptClearAll = () => {
     setConfirmModal({
       isOpen: true,
@@ -940,10 +974,26 @@ export default function AdminDashboard({ darkMode }) {
                   {alertasBio.length} evento{alertasBio.length !== 1 ? 's' : ''}
                 </span>
               )}
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-black uppercase tracking-widest">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                En Vivo
-              </span>
+
+              {/* NUEVO BOTÓN: VACIAR TODO */}
+              <button 
+                onClick={vaciarHistorial}
+                className="text-xs text-neutral-500 hover:text-red-600 underline font-semibold transition-colors"
+              >
+                Limpiar Historial
+              </button>
+
+              {Object.keys(studentStatus).length > 0 ? (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-black uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  En Vivo
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-500 text-[10px] font-black uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
+                  Inactivo
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -973,9 +1023,22 @@ export default function AdminDashboard({ darkMode }) {
                       <h4 className={cn('font-extrabold text-sm uppercase tracking-wide leading-tight', cfg.text)}>
                         {cfg.label}
                       </h4>
-                      <span className="text-[10px] font-mono text-neutral-500 bg-white dark:bg-white/10 px-2 py-0.5 rounded-lg shadow-sm border dark:border-white/10 shrink-0">
-                        {new Date(alerta.creado_en).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-neutral-500 bg-white dark:bg-white/10 px-2 py-0.5 rounded-lg shadow-sm border dark:border-white/10 shrink-0">
+                          {new Date(alerta.creado_en).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                        
+                        {/* NUEVO BOTÓN: BORRAR INDIVIDUAL */}
+                        <button 
+                          onClick={() => borrarAlerta(alerta.id)}
+                          className="text-neutral-400 hover:text-red-500 transition-colors p-1"
+                          title="Eliminar esta alerta"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-white dark:bg-white/10 text-neutral-800 dark:text-neutral-200 border dark:border-white/10 shadow-sm">
