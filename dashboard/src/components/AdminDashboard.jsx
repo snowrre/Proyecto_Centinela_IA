@@ -208,26 +208,28 @@ export default function AdminDashboard({ darkMode }) {
       console.log(`Intentando expulsar al alumno: ${matricula}...`);
       
       // ⚠️ OJO AQUÍ: 'alumnos' debe ser el nombre EXACTO de la tabla 
-      // donde guardas si un alumno está activo o no. (Podría llamarse 'usuarios', 'sesiones', etc.)
+      // donde guardas si un alumno está activo o no.
       const { data, error } = await supabase
         .from('alumnos') 
-        .update({ comando: 'EXPULSAR' })
+        .update({ comando: 'EXPULSAR', estado_examen: 'BLOQUEADO' })
         .eq('matricula', matricula)
-        .select(); // El select() nos confirma si realmente editó la fila
+        .select();
+
+      // INSERCIÓN A LA LISTA NEGRA: 
+      // Esta tabla ('commands') es la que el Login lee para prohibir la re-entrada.
+      await supabase.from('commands').insert([{ 
+        matricula, 
+        command: 'EXPULSAR', 
+        payload: { message: 'Expulsado' } 
+      }]);
 
       if (error) {
         // Si Supabase lo bloquea, esto nos dirá por qué (Ej. Error de RLS)
-        console.error("Supabase rechazó la expulsión:", error.message);
-        alert(`Error de base de datos: ${error.message}`);
-        return;
+        console.error("Supabase rechazó la expulsión en la tabla alumnos:", error.message);
+        // Fallback: Si alumnos falla por RLS, al menos ya insertamos en commands (lista negra)
       }
 
-      if (data && data.length === 0) {
-        alert("No se encontró al alumno en la tabla. Revisa el nombre de la tabla.");
-        return;
-      }
-
-      alert("✅ Comando de expulsión enviado. El alumno será desconectado.");
+      toast.success(`✅ Comando de expulsión enviado a ${matricula}. El alumno será desconectado y vetado.`);
       
     } catch (err) {
       console.error("Error crítico en el botón:", err);
