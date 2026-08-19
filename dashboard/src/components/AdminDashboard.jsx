@@ -245,6 +245,9 @@ export default function AdminDashboard({ darkMode }) {
         .eq('id', idAlerta);
 
       if (error) throw error;
+      
+      // Limpiar la UI inmediatamente
+      setAlertasBio(prev => prev.filter(a => a.id !== idAlerta));
     } catch (error) {
       console.error("Error al borrar la alerta:", error);
       alert("Error al borrar: " + error.message);
@@ -263,6 +266,9 @@ export default function AdminDashboard({ darkMode }) {
         .not('id', 'is', null); 
 
       if (error) throw error;
+      
+      // Vaciar la pantalla inmediatamente
+      setAlertasBio([]);
     } catch (error) {
       console.error("Error al vaciar el historial:", error);
       alert("Error al limpiar historial: " + error.message);
