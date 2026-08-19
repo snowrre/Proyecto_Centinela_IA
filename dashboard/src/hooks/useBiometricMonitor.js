@@ -114,14 +114,14 @@ export function useBiometricMonitor() {
         debug: false,
         face: {
           enabled: true,
-          detector: { return: true, rotation: true },
+          detector: { return: true, rotation: true, maxSize: 256 },
           mesh: { enabled: true },
-          iris: { enabled: true }, 
+          iris: { enabled: false }, // APAGADO: Consume RAM y no lo usamos para pitch/yaw
           description: { enabled: false } // APAGADO: Ahorramos memoria, ya validamos identidad
         },
         body: { enabled: false },
         hand: { enabled: false },
-        object: { enabled: true }, // ACTIVADO: Para detectar celulares sin YOLO
+        object: { enabled: true, maxSize: 256 }, // ACTIVADO: Para detectar celulares sin YOLO y ultrarrápido
         gesture: { enabled: false }
       });
 
@@ -200,14 +200,15 @@ export function useBiometricMonitor() {
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
               
-              // 1. SENSOR DE CELULARES (Prioridad Máxima)
+              // 1. SENSOR DE CELULARES (Prioridad Máxima y más sensible)
               if (result.object && result.object.length > 0) {
                   const celular = result.object.find(obj => 
                       obj.label === 'cell phone' || 
                       obj.label === 'smartphone' ||
                       obj.label === 'mobile phone'
                   );
-                  if (celular && celular.score > 0.45) {
+                  // Bajamos la exigencia a 30% (0.30) porque en movimiento las webcams ven borroso
+                  if (celular && celular.score > 0.30) {
                       isPhoneDetected = true;
                       activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
                   }
@@ -314,8 +315,13 @@ export function useBiometricMonitor() {
           */
         }
       }
-      
-      animationFrameId.current = window.requestAnimationFrame(predictWebcam);
+      // EL TRUCO DE RENDIMIENTO: 
+      // Pausamos 200ms antes del siguiente escaneo. Tu laptop te lo agradecerá.
+      setTimeout(() => {
+          if (isRunningRef.current) {
+              animationFrameId.current = window.requestAnimationFrame(predictWebcam);
+          }
+      }, 200);
     };
 
     predictWebcam();
