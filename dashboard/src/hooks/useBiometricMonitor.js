@@ -207,15 +207,20 @@ export function useBiometricMonitor() {
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
               
-              // 1. SENSOR DE CELULARES (Prioridad Máxima y más sensible)
+              // 1. SENSOR DE OBJETOS (Modo Diagnóstico)
               if (result.object && result.object.length > 0) {
+                  // ESTO ES TEMPORAL: Vamos a imprimir una sola línea para ver qué ve la IA
+                  const nombresDeObjetos = result.object.map(obj => `${obj.label} (${Math.round(obj.score * 100)}%)`);
+                  console.log("👁️ La IA está viendo:", nombresDeObjetos.join(", "));
+
                   const celular = result.object.find(obj => 
                       obj.label === 'cell phone' || 
                       obj.label === 'smartphone' ||
+                      obj.label === 'remote' || // Agregamos remote por si lo confunde
                       obj.label === 'mobile phone'
                   );
-                  // Bajamos la exigencia a 30% (0.30) porque en movimiento las webcams ven borroso
-                  if (celular && celular.score > 0.30) {
+                  
+                  if (celular && celular.score > 0.20) {
                       isPhoneDetected = true;
                       activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
                   }
