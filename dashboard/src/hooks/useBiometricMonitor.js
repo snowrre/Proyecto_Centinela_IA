@@ -113,7 +113,7 @@ export function useBiometricMonitor() {
       
       // Limpieza de memoria WASM
       if (typeof window !== 'undefined' && window.Module) {
-          delete window.Module; 
+          window.Module = undefined; 
           console.log("[BioMonitor] Memoria WASM purgada y lista.");
       }
 
@@ -135,8 +135,8 @@ export function useBiometricMonitor() {
         object: { 
           enabled: true, 
           // QUITAMOS el maxSize para que vea el celular en Alta Resolución
-          // Bajamos la confianza interna a 20% para que sea ultra sensible
-          minConfidence: 0.2 
+          // Bajamos la confianza interna a 15% para que sea ultra sensible
+          minConfidence: 0.15 
         }, 
         gesture: { enabled: false }
       });
