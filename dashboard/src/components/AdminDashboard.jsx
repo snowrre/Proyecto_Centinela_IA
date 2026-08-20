@@ -201,39 +201,51 @@ export default function AdminDashboard({ darkMode }) {
 
   // LA FUNCIÓN DESTRUCTIVA: Expulsa al alumno
   const bloquearAlumno = async (matricula) => {
-    const confirmar = window.confirm(`🚨 ¿Estás seguro de cancelar el examen y expulsar al alumno ${matricula}?`);
-    if (!confirmar) return;
+    Swal.fire({
+      title: `¿Expulsar al alumno ${matricula}?`,
+      text: "Se bloqueará su pantalla y no podrá volver a entrar.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Sí, expulsar',
+      cancelButtonText: 'Cancelar',
+      background: '#ffffff',
+      borderRadius: '1rem',
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          console.log(`Intentando expulsar al alumno: ${matricula}...`);
+          
+          const { data, error } = await supabase
+            .from('alumnos') 
+            .update({ comando: 'EXPULSAR', estado_examen: 'BLOQUEADO' })
+            .eq('matricula', matricula)
+            .select();
 
-    try {
-      console.log(`Intentando expulsar al alumno: ${matricula}...`);
-      
-      // ⚠️ OJO AQUÍ: 'alumnos' debe ser el nombre EXACTO de la tabla 
-      // donde guardas si un alumno está activo o no.
-      const { data, error } = await supabase
-        .from('alumnos') 
-        .update({ comando: 'EXPULSAR', estado_examen: 'BLOQUEADO' })
-        .eq('matricula', matricula)
-        .select();
+          await supabase.from('commands').insert([{ 
+            matricula, 
+            command: 'EXPULSAR', 
+            payload: { message: 'Expulsado' } 
+          }]);
 
-      // INSERCIÓN A LA LISTA NEGRA: 
-      // Esta tabla ('commands') es la que el Login lee para prohibir la re-entrada.
-      await supabase.from('commands').insert([{ 
-        matricula, 
-        command: 'EXPULSAR', 
-        payload: { message: 'Expulsado' } 
-      }]);
+          if (error) {
+            console.error("Supabase rechazó la expulsión en la tabla alumnos:", error.message);
+          }
 
-      if (error) {
-        // Si Supabase lo bloquea, esto nos dirá por qué (Ej. Error de RLS)
-        console.error("Supabase rechazó la expulsión en la tabla alumnos:", error.message);
-        // Fallback: Si alumnos falla por RLS, al menos ya insertamos en commands (lista negra)
+          Swal.fire({
+            title: '¡Expulsado!',
+            text: `El alumno ${matricula} ha sido bloqueado exitosamente.`,
+            icon: 'success',
+            timer: 1500,
+            showConfirmButton: false
+          });
+          
+        } catch (err) {
+          console.error("Error crítico en el botón:", err);
+        }
       }
-
-      toast.success(`✅ Comando de expulsión enviado a ${matricula}. El alumno será desconectado y vetado.`);
-      
-    } catch (err) {
-      console.error("Error crítico en el botón:", err);
-    }
+    });
   };
 
   // 1. Función para borrar UNA sola alerta
@@ -255,24 +267,44 @@ export default function AdminDashboard({ darkMode }) {
   };
 
   // 2. Función para vaciar TODO el historial biométrico
-  const vaciarHistorial = async () => {
-    const confirmar = window.confirm("⚠️ ¿Estás seguro de que quieres eliminar TODAS las alertas biométricas? Esta acción no se puede deshacer.");
-    if (!confirmar) return;
+  const vaciarHistorial = () => {
+    Swal.fire({
+      title: '¿Limpiar historial?',
+      text: "Se eliminarán todas las alertas biométricas. Esta acción no se puede deshacer.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Sí, eliminar todo',
+      cancelButtonText: 'Cancelar',
+      background: '#ffffff',
+      borderRadius: '1rem',
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          const { error } = await supabase
+            .from('telemetria_examenes')
+            .delete()
+            .not('id', 'is', null); 
 
-    try {
-      const { error } = await supabase
-        .from('telemetria_examenes')
-        .delete()
-        .not('id', 'is', null); 
-
-      if (error) throw error;
-      
-      // Vaciar la pantalla inmediatamente
-      setAlertasBio([]);
-    } catch (error) {
-      console.error("Error al vaciar el historial:", error);
-      alert("Error al limpiar historial: " + error.message);
-    }
+          if (error) throw error;
+          
+          // Vaciar la pantalla inmediatamente
+          setAlertasBio([]);
+          
+          Swal.fire({
+            title: '¡Limpiado!',
+            text: 'El historial está vacío.',
+            icon: 'success',
+            timer: 1500,
+            showConfirmButton: false
+          });
+        } catch (error) {
+          console.error("Error al vaciar el historial:", error);
+          alert("Error al limpiar historial: " + error.message);
+        }
+      }
+    });
   };
 
 
