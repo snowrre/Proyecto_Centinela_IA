@@ -105,19 +105,28 @@ export default function RegistroCampus() {
 
               {/* Success Message */}
               {success && resultData && (
-                <div className="bg-green-500/10 border border-green-500/20 rounded-[20px] p-4 flex gap-3 items-start">
-                  <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                  <div className="text-sm font-medium">
-                    <p className="text-green-400 font-bold">{resultData.mensaje}</p>
-                    {resultData.cuentas_fallidas?.length > 0 && (
-                      <p className="text-yellow-400/80 mt-1 text-xs">
-                        ⚠ {resultData.cuentas_fallidas.length} correo(s) ya existían y fueron omitidos.
+                <div className="space-y-4">
+                  <div className="bg-green-500/10 border border-green-500/20 rounded-[20px] p-4 flex gap-3 items-start">
+                    <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm font-medium">
+                      <p className="text-green-400 font-bold">{resultData.mensaje}</p>
+                      {resultData.cuentas_fallidas?.length > 0 && (
+                        <p className="text-yellow-400/80 mt-1 text-xs">
+                          ⚠ {resultData.cuentas_fallidas.length} correo(s) ya existían y fueron omitidos.
+                        </p>
+                      )}
+                      <p className="text-green-500/70 mt-2 text-xs">
+                        Contraseña temporal: <span className="font-mono font-black text-green-400/90">Centinela + [matrícula]</span>
                       </p>
-                    )}
-                    <p className="text-green-500/70 mt-2 text-xs">
-                      Contraseña temporal: <span className="font-mono font-black text-green-400/90">Centinela + [matrícula]</span>
-                    </p>
+                    </div>
                   </div>
+                  <button 
+                    type="button"
+                    onClick={() => window.location.href = "/"} 
+                    className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all rounded-[15px] text-white font-black text-[13px] uppercase tracking-widest flex items-center justify-center shadow-[0_0_20px_rgba(37,99,235,0.3)]"
+                  >
+                    Volver a la pantalla de inicio
+                  </button>
                 </div>
               )}
 
