@@ -28,7 +28,8 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
     if (email === 'admin@utc.edu.mx' && password === 'tesis2026') {
       toast("Entrando en Modo Administrador (Bypass local)", { icon: '🛡️' });
       setLoading(false);
-      if (onLoginTeacher) onLoginTeacher({ id: 'admin-bypass', email: 'admin@utc.edu.mx' });
+      // MODO PROFESOR - Bypass
+      if (onLoginTeacher) onLoginTeacher({ id: '00000000-0000-0000-0000-000000000000', email: 'admin@utc.edu.mx' });
       return;
     }
 

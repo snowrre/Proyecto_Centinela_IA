@@ -234,7 +234,7 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
     try {
       // 0. IDENTIFICAR AL PROFESOR ACTUAL
       const { data: { user } } = await supabase.auth.getUser();
-      const idProfesorActual = user ? user.id : 'admin-bypass'; // Fallback para modo demo
+      const idProfesorActual = user ? user.id : '00000000-0000-0000-0000-000000000000'; // Fallback para modo demo
       
       // Consultar la universidad del profesor
       let idUniversidadActual = null;
@@ -311,7 +311,7 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
     try {
       // 0. IDENTIFICAR AL PROFESOR ACTUAL
       const { data: { user } } = await supabase.auth.getUser();
-      const idProfesorActual = user ? user.id : 'admin-bypass'; // Fallback para modo demo
+      const idProfesorActual = user ? user.id : '00000000-0000-0000-0000-000000000000'; // Fallback para modo demo
 
       // Consultar la universidad del profesor
       let idUniversidadActual = null;
