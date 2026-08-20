@@ -373,42 +373,59 @@ export default function AdminDashboard({ darkMode }) {
     }
   };
 
-  const handleKickStudent = async (matricula) => {
-    // 1. Animación bonita de confirmación
-    const result = await Swal.fire({
-      title: '¿Expulsar a este alumno?',
-      text: `Estás a punto de eliminar a ${matricula}. Su acceso será revocado.`,
+  const handleKickStudent = (matricula) => {
+    Swal.fire({
+      title: '¿Expulsar estudiante?',
+      text: `¿Estás seguro de que deseas expulsar al alumno ${matricula}? Se le desconectará inmediatamente.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#3085d6',
-      confirmButtonText: 'Sí, eliminar',
-      cancelButtonText: 'Cancelar'
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Sí, expulsar',
+      cancelButtonText: 'Cancelar',
+    }).then(async (result) => {
+      
+      if (result.isConfirmed) {
+        try {
+          // Lógica Dual unificada
+          const { error } = await supabase
+            .from('alumnos') 
+            .update({ comando: 'EXPULSAR', estado_examen: 'BLOQUEADO' })
+            .eq('matricula', matricula);
+
+          await supabase.from('commands').insert([{ 
+            matricula, 
+            command: 'EXPULSAR', 
+            payload: { message: 'Expulsado' } 
+          }]);
+          
+          await supabase.from('camera_logs').insert([{ 
+            matricula, 
+            tipo: 'EXPULSION_MANUAL', 
+            descripcion: 'Expulsado por el docente' 
+          }]);
+
+          if (error) {
+            console.error("Supabase rechazó la expulsión en alumnos:", error.message);
+          }
+
+          // Alerta bonita de éxito cuando termine
+          Swal.fire({
+            title: '¡Expulsado!',
+            text: 'El alumno ha sido bloqueado con éxito.',
+            icon: 'success',
+            timer: 1500,
+            showConfirmButton: false
+          });
+          
+          // Actualizar la lista negra automáticamente
+          fetchBlockedStudents();
+        } catch (error) {
+          console.error("Error al expulsar:", error);
+          Swal.fire('Error', 'Hubo un problema de conexión con la base de datos.', 'error');
+        }
+      }
     });
-
-    if (!result.isConfirmed) return;
-
-    try {
-      // 2. Ejecutar base de datos
-      await supabase.from('camera_logs').insert([{ matricula, tipo: 'EXPULSION_MANUAL', descripcion: 'Expulsado por el docente' }]);
-      await supabase.from('commands').insert([{ matricula, command: 'EXPULSAR', payload: { message: 'Expulsado' } }]);
-
-      // 3. Notificación visual de éxito (El aviso que el profesor necesita ver)
-      Swal.fire({
-        title: '¡Eliminado!',
-        text: `El alumno ${matricula} ya no está en el examen.`,
-        icon: 'success',
-        timer: 3000,
-        showConfirmButton: false
-      });
-
-      // 4. Actualizar la lista negra automáticamente
-      fetchBlockedStudents();
-
-    } catch (error) {
-      console.error(error);
-      Swal.fire('Error', 'Fallo de conexión.', 'error');
-    }
   };
 
   const handleUnbanStudent = async (matricula) => {
