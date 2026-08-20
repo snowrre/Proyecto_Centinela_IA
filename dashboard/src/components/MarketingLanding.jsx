@@ -303,14 +303,12 @@ export default function MarketingLanding({ onGoToLogin }) {
                 <PricingFeature text="Almacenamiento extendido de métricas" />
               </div>
 
-              <a 
-                href="https://mpago.la/1bbMjky"
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="w-full block text-center py-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-600/25"
+              <button 
+                onClick={() => handleCheckout('campus')}
+                className="w-full py-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-600/25"
               >
                 Seleccionar Plan
-              </a>
+              </button>
             </div>
           </div>
         </div>
