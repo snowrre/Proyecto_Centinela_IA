@@ -595,7 +595,13 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
             maxPuntosMultiples += valor;
             
             const respuestaSeleccionada = selectedAnswers[index];
-            const opcionCorrecta = pregunta.options.find(opt => opt.es_correcta === true);
+            // Relax boolean check to catch 'true' string, true boolean or 1
+            const opcionCorrecta = pregunta.options.find(opt => 
+              opt.es_correcta === true || 
+              opt.es_correcta === 'true' || 
+              opt.es_correcta === 1 || 
+              opt.es_correcta === '1'
+            );
             
             if (opcionCorrecta && respuestaSeleccionada === opcionCorrecta.id) {
               puntajeParcial += valor;
