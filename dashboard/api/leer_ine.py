@@ -20,9 +20,20 @@ def extraer_datos_ine(texto_completo):
     for i, linea in enumerate(lineas):
         if "NOMBRE" in linea.upper():
             try:
-                apellidos = lineas[i+1]
-                nombres = lineas[i+2]
-                return f"{nombres} {apellidos}".strip()
+                # El INE mexicano separa el nombre en 3 renglones consecutivos:
+                # Línea 1: Apellido Paterno
+                # Línea 2: Apellido Materno
+                # Línea 3: Nombre(s)
+                paterno = lineas[i+1].strip()
+                materno = lineas[i+2].strip()
+                nombres = lineas[i+3].strip()
+                
+                # Salvavidas: si el OCR juntó apellidos y brincó hasta "DOMICILIO"
+                if "DOMICILIO" in nombres.upper():
+                    return f"{materno} {paterno}".strip()
+                
+                # Formato natural: Nombre(s) Paterno Materno
+                return f"{nombres} {paterno} {materno}".strip()
             except IndexError:
                 pass
     return "No detectado"
