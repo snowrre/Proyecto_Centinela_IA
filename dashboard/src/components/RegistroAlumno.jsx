@@ -340,6 +340,7 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
   const crearCuentaEnSupabase = async () => {
     try {
       const { error } = await supabase.from('alumnos').insert([{
+        id:                    datosFormulario.matricula, // Pasamos la matrícula como llave primaria
         nombre_completo:       datosFormulario.nombre,
         correo:                datosFormulario.correo,
         matricula:             datosFormulario.matricula,
