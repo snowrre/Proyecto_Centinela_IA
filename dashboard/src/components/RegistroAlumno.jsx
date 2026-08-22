@@ -181,35 +181,40 @@ function ValidacionDocumental({ datosFormulario, onSiguiente, darkMode }) {
     setMensajeOcr('Google Cloud Vision analizando credencial...');
 
     try {
+      // El microservicio Python solo recibe la foto y devuelve el nombre
       const formData = new FormData();
       formData.append('foto', archivo);
-      formData.append('id_alumno', 'pre-registro'); // aún no tenemos UUID, es un pre-registro
 
       const res = await fetch('/api/leer_ine', { method: 'POST', body: formData });
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error || 'Error al leer la INE');
 
-      const nombreOcr       = normalizarNombre(data.nombre || '');
+      const nombreOcr        = normalizarNombre(data.nombre || '');
       const nombreFormulario = normalizarNombre(datosFormulario.nombre);
 
-      // ── CANDADO ANTIFRAUDE ────────────────────────────────────────
-      // Verificamos que el nombre del formulario aparezca DENTRO del texto
-      // extraído de la INE (usamos includes para tolerar orden de apellidos)
+      // ── CANDADO ANTIFRAUDE (100% en React, sin Python) ────────────
       const palabrasFormulario = nombreFormulario.split(' ').filter(Boolean);
       const coincidencias = palabrasFormulario.filter(p => nombreOcr.includes(p));
       const porcentajeMatch = coincidencias.length / palabrasFormulario.length;
 
       if (porcentajeMatch >= 0.6) {
-        // ✅ Coincidencia aceptable — avanzar
+        // ✅ Coincidencia aprobada — registrar en Supabase desde el frontend
+        await supabase.from('verificacion_identidad').insert([{
+          id_alumno:            datosFormulario.matricula, // usamos matrícula como ID temporal
+          ine_nombre_extraido:  data.nombre,
+          ocr_exitoso:          true,
+          estado_verificacion:  'pendiente_biometria',
+        }]);
+
         setFase('match');
         setMensajeOcr(`✅ Nombre verificado. Coincidencia: ${Math.round(porcentajeMatch * 100)}%`);
         setTimeout(() => onSiguiente(archivo), 1800);
       } else {
-        // 🚫 Posible suplantación — bloquear
+        // 🚫 Posible suplantación — bloquear sin gastar AWS
         setFase('fraude');
         setMensajeOcr(
-          `🚫 Alerta de seguridad: el nombre "${datosFormulario.nombre}" no coincide con la credencial (encontrado: "${data.nombre}"). Registro denegado.`
+          `🚫 Alerta de seguridad: "${datosFormulario.nombre}" no coincide con la credencial (encontrado: "${data.nombre}"). Registro denegado.`
         );
       }
     } catch (err) {

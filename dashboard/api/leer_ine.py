@@ -1,7 +1,5 @@
 import os
 import json
-import urllib.request
-import urllib.error
 from flask import Flask, request, jsonify
 from google.cloud import vision
 from google.oauth2 import service_account
@@ -32,13 +30,12 @@ def extraer_datos_ine(texto_completo):
 @app.route('/api/leer_ine', methods=['POST'])
 def leer_ine():
     try:
-        if 'foto' not in request.files or 'id_alumno' not in request.form:
-            return jsonify({"error": "Falta la foto o el ID del alumno"}), 400
+        if 'foto' not in request.files:
+            return jsonify({"error": "Falta la foto"}), 400
             
         foto = request.files['foto']
-        id_alumno = request.form['id_alumno']
         
-        # 1. Procesar con Google Vision en pura memoria
+        # Procesar con Google Vision en pura memoria — única responsabilidad de este microservicio
         content = foto.read()
         client = obtener_cliente_vision()
         image = vision.Image(content=content)
@@ -54,35 +51,7 @@ def leer_ine():
         texto_crudo = textos[0].description
         nombre_extraido = extraer_datos_ine(texto_crudo)
         
-        # 2. Conexión nativa a Supabase — red limpia, cero librerías de terceros
-        supabase_url = os.environ.get("SUPABASE_URL", "").strip()
-        supabase_key = os.environ.get("SUPABASE_KEY", "").strip()
-        
-        endpoint = f"{supabase_url}/rest/v1/verificacion_identidad"
-        
-        datos_insercion = {
-            "id_alumno": id_alumno,
-            "ine_nombre_extraido": nombre_extraido,
-            "ocr_exitoso": True,
-            "estado_verificacion": "pendiente_biometria"
-        }
-        
-        datos_bytes = json.dumps(datos_insercion).encode('utf-8')
-        
-        req = urllib.request.Request(endpoint, data=datos_bytes, method='POST')
-        req.add_header('apikey', supabase_key)
-        req.add_header('Authorization', f'Bearer {supabase_key}')
-        req.add_header('Content-Type', 'application/json')
-        req.add_header('Prefer', 'return=minimal')
-        
-        try:
-            with urllib.request.urlopen(req) as res:
-                pass  # Éxito silencioso — 201 Created
-        except urllib.error.HTTPError as he:
-            return jsonify({"error": f"Error Supabase: {he.code} - {he.read().decode()}"}), 500
-        except urllib.error.URLError as ue:
-            return jsonify({"error": f"Error de red a BD: {str(ue.reason)}"}), 500
-        
+        # Devolvemos el nombre al frontend — fin del trabajo de Python
         return jsonify({
             "mensaje": "INE procesada con éxito",
             "nombre": nombre_extraido
