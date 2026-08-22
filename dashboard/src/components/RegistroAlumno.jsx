@@ -96,7 +96,7 @@ function FormularioDatos({ onSiguiente, darkMode }) {
   const handleChange = (e) =>
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
-  const handleSiguiente = () => {
+  const handleSiguiente = async () => {
     const { nombre, correo, matricula } = form;
     if (!nombre.trim() || !correo.trim() || !matricula.trim()) {
       setError('Todos los campos son obligatorios.');
@@ -107,7 +107,25 @@ function FormularioDatos({ onSiguiente, darkMode }) {
       return;
     }
     setError('');
-    onSiguiente(form);
+    
+    // 1. Extraemos el dominio del correo
+    let dominioIngresado = correo.split('@')[1].toLowerCase();
+    
+    // 2. Tocamos la puerta de Supabase para ver si la universidad tiene convenio
+    const { data: universidad, error: errorUni } = await supabase
+      .from('universidades')
+      .select('id, nombre_institucion')
+      .eq('dominio_permitido', dominioIngresado)
+      .single();
+      
+    // 3. EL MURO DE SEGURIDAD (Aquí rebotamos a los intrusos)
+    if (errorUni || !universidad) {
+      setError(`Acceso denegado: El dominio @${dominioIngresado} no pertenece a ninguna universidad registrada en Centinela IA.`);
+      return;
+    }
+    
+    // 4. Pasamos los datos junto con el ID de la universidad validada
+    onSiguiente({ ...form, id_universidad: universidad.id });
   };
 
   return (
@@ -341,6 +359,7 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
     try {
       const { error } = await supabase.from('alumnos').insert([{
         id:                    datosFormulario.matricula, // Pasamos la matrícula como llave primaria
+        id_universidad:        datosFormulario.id_universidad, // Amarramos al alumno con su institución validada
         nombre_completo:       datosFormulario.nombre,
         correo:                datosFormulario.correo,
         matricula:             datosFormulario.matricula,
