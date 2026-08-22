@@ -9,7 +9,7 @@ tempfile.tempdir = '/tmp'
 from flask import Flask, request, jsonify
 from google.cloud import vision
 from google.oauth2 import service_account
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 
 app = Flask(__name__)
 
@@ -47,7 +47,10 @@ def leer_ine():
         # Conectar a Supabase usando variables de entorno
         supabase_url = os.environ.get("SUPABASE_URL")
         supabase_key = os.environ.get("SUPABASE_KEY") # Aquí irá tu SERVICE_ROLE
-        supabase: Client = create_client(supabase_url, supabase_key)
+        
+        # Apagamos el guardado de la sesión en disco para evitar [Errno 16] en Vercel
+        opciones = ClientOptions(persist_session=False)
+        supabase: Client = create_client(supabase_url, supabase_key, options=opciones)
         
         # Leer imagen y procesar con Google Vision
         content = foto.read()
