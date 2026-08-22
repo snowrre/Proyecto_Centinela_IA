@@ -1,20 +1,13 @@
 import os
 import json
-import tempfile
-
-# Asegurar que Vercel/Werkzeug use /tmp para cualquier archivo pesado en memoria
-os.environ['TMPDIR'] = '/tmp'
-tempfile.tempdir = '/tmp'
-
+import requests  # Reemplaza supabase-py por HTTP directo — cero toques al disco
 from flask import Flask, request, jsonify
 from google.cloud import vision
 from google.oauth2 import service_account
-from supabase import create_client, Client, ClientOptions
 
 app = Flask(__name__)
 
 def obtener_cliente_vision():
-    # En Vercel, la llave JSON vivirá como un texto en las variables de entorno
     credenciales_texto = os.environ.get('GOOGLE_CREDENTIALS_JSON')
     if not credenciales_texto:
         raise ValueError("Falta la llave de Google Vision en Vercel")
@@ -44,15 +37,7 @@ def leer_ine():
         foto = request.files['foto']
         id_alumno = request.form['id_alumno']
         
-        # Conectar a Supabase usando variables de entorno
-        supabase_url = os.environ.get("SUPABASE_URL")
-        supabase_key = os.environ.get("SUPABASE_KEY") # Aquí irá tu SERVICE_ROLE
-        
-        # Apagamos el guardado de la sesión en disco para evitar [Errno 16] en Vercel
-        opciones = ClientOptions(persist_session=False)
-        supabase: Client = create_client(supabase_url, supabase_key, options=opciones)
-        
-        # Leer imagen y procesar con Google Vision
+        # 1. Leer imagen y procesar con Google Vision en pura memoria (sin tocar disco)
         content = foto.read()
         client = obtener_cliente_vision()
         image = vision.Image(content=content)
@@ -68,7 +53,17 @@ def leer_ine():
         texto_crudo = textos[0].description
         nombre_extraido = extraer_datos_ine(texto_crudo)
         
-        # Guardar en Supabase
+        # 2. Guardar en Supabase usando su API REST pura (sin librería, sin archivos de sesión)
+        supabase_url = os.environ.get("SUPABASE_URL")
+        supabase_key = os.environ.get("SUPABASE_KEY")
+        
+        endpoint = f"{supabase_url}/rest/v1/verificacion_identidad"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+        }
         datos_insercion = {
             "id_alumno": id_alumno,
             "ine_nombre_extraido": nombre_extraido,
@@ -76,7 +71,10 @@ def leer_ine():
             "estado_verificacion": "pendiente_biometria"
         }
         
-        supabase.table("verificacion_identidad").insert(datos_insercion).execute()
+        res = requests.post(endpoint, json=datos_insercion, headers=headers)
+        
+        if not res.ok:
+            return jsonify({"error": f"Error al guardar en BD: {res.text}"}), 500
         
         return jsonify({
             "mensaje": "INE procesada con éxito",
@@ -85,3 +83,7 @@ def leer_ine():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# Para pruebas locales únicamente — Vercel ignora este bloque
+if __name__ == '__main__':
+    app.run(debug=True)
