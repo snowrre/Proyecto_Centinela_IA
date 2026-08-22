@@ -1,15 +1,10 @@
 import os
 import json
-import tempfile
 import urllib.request
 import urllib.error
 from flask import Flask, request, jsonify
 from google.cloud import vision
 from google.oauth2 import service_account
-
-# Obligar a Flask/Werkzeug a usar la única carpeta permitida en Vercel
-os.environ['TMPDIR'] = '/tmp'
-tempfile.tempdir = '/tmp'
 
 app = Flask(__name__)
 
@@ -43,7 +38,7 @@ def leer_ine():
         foto = request.files['foto']
         id_alumno = request.form['id_alumno']
         
-        # Procesar con Google Vision en pura memoria
+        # 1. Procesar con Google Vision en pura memoria
         content = foto.read()
         client = obtener_cliente_vision()
         image = vision.Image(content=content)
@@ -59,7 +54,7 @@ def leer_ine():
         texto_crudo = textos[0].description
         nombre_extraido = extraer_datos_ine(texto_crudo)
         
-        # Conexión nativa de Python a Supabase — cero dependencias de terceros
+        # 2. Conexión nativa a Supabase — red limpia, cero librerías de terceros
         supabase_url = os.environ.get("SUPABASE_URL", "").strip()
         supabase_key = os.environ.get("SUPABASE_KEY", "").strip()
         
@@ -82,7 +77,7 @@ def leer_ine():
         
         try:
             with urllib.request.urlopen(req) as res:
-                pass  # 201 Created — éxito silencioso
+                pass  # Éxito silencioso — 201 Created
         except urllib.error.HTTPError as he:
             return jsonify({"error": f"Error Supabase: {he.code} - {he.read().decode()}"}), 500
         except urllib.error.URLError as ue:
