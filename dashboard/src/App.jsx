@@ -17,6 +17,7 @@ import AdminDashboard from './components/AdminDashboard';
 import BiometricAuth from './components/BiometricAuth';
 import EnrolamientoFacial from './components/EnrolamientoFacial';
 import ValidacionINE from './components/ValidacionINE';
+import VerificacionRostroAWS from './components/VerificacionRostroAWS';
 import TerminosYPrivacidad from './components/TerminosYPrivacidad';
 import ProcesarPago from './components/ProcesarPago';
 import RegistroCampus from './components/RegistroCampus';
@@ -73,6 +74,8 @@ export default function App() {
     const session = localStorage.getItem('centinela_session');
     try { return session ? JSON.parse(session) : null; } catch(e) { return null; }
   });
+  // Guarda el File de la INE para passarlo a AWS Rekognition en el siguiente paso
+  const [fotoIneFile, setFotoIneFile] = useState(null);
 
   const handleLogout = () => {
     setView('landing');
@@ -186,15 +189,30 @@ export default function App() {
     );
   }
 
-  // ── 🛂 PASO 1: Validación de Identidad (INE) ─────────────────────────────
-  // Se muestra solo en el primer uso, antes del enrolamiento facial.
+  // ── 🛂 PASO 1: Validación OCR de INE ──────────────────────────────────────
   if (view === 'validacion_ine') {
     return (
       <ValidacionINE
         idAlumno={studentData?.id}
         darkMode={darkMode}
-        onSuccess={() => {
-          // INE validada con éxito ✓ — ahora enrolamos su rostro
+        onSuccess={({ nombre, archivoIne }) => {
+          // INE leída ✓ — guardamos el File y avanzamos a la comparación facial
+          setFotoIneFile(archivoIne);
+          setView('verificacion_rostro_aws');
+        }}
+      />
+    );
+  }
+
+  // ── 🤖 PASO 2: Face Match con AWS Rekognition ─────────────────────────────
+  if (view === 'verificacion_rostro_aws') {
+    return (
+      <VerificacionRostroAWS
+        fotoIne={fotoIneFile}
+        darkMode={darkMode}
+        onExito={() => {
+          // Face match exitoso ✓ — ahora enrolamos la huella biométrica
+          setFotoIneFile(null); // Liberar memoria
           setView('enrolamiento_facial');
         }}
       />

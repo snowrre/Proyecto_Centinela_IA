@@ -41,11 +41,12 @@ export default function ValidacionINE({ idAlumno, darkMode = false, onSuccess })
       }
 
       setFase('exito');
-      setMensaje(`¡Identidad confirmada! Hola, ${datos.nombre}`);
+      setMensaje(`¡Credencial leída! Hola, ${datos.nombre}`);
       
-      // Llamamos al callback si existe (para avanzar en el flujo de la app)
+      // Pasamos tanto el nombre extraído COMO el archivo File de la INE al siguiente paso
+      // para que VerificacionRostroAWS pueda hacer el face match
       setTimeout(() => {
-        if (onSuccess) onSuccess(datos.nombre);
+        if (onSuccess) onSuccess({ nombre: datos.nombre, archivoIne: archivo });
       }, 2000);
 
     } catch (error) {
