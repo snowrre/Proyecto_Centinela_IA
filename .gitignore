@@ -31,3 +31,9 @@ yarn-error.log*
 *.pt
 *.h5
 *.weights
+
+# Llaves de API (NUNCA SUBIR)
+vision-key.json
+test_vision.py
+get_id.py
+foto_prueba.jpg
