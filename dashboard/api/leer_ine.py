@@ -1,11 +1,15 @@
 import os
 import json
+import tempfile
+import urllib.request
+import urllib.error
 from flask import Flask, request, jsonify
 from google.cloud import vision
 from google.oauth2 import service_account
 
-# Importamos ClientOptions para apagar el uso del disco en Vercel
-from supabase import create_client, Client, ClientOptions
+# Obligar a Flask/Werkzeug a usar la única carpeta permitida en Vercel
+os.environ['TMPDIR'] = '/tmp'
+tempfile.tempdir = '/tmp'
 
 app = Flask(__name__)
 
@@ -39,7 +43,7 @@ def leer_ine():
         foto = request.files['foto']
         id_alumno = request.form['id_alumno']
         
-        # 1. Leer imagen y procesar con Google Vision en pura memoria (sin tocar disco)
+        # Procesar con Google Vision en pura memoria
         content = foto.read()
         client = obtener_cliente_vision()
         image = vision.Image(content=content)
@@ -55,14 +59,11 @@ def leer_ine():
         texto_crudo = textos[0].description
         nombre_extraido = extraer_datos_ine(texto_crudo)
         
-        # 2. Conectar a Supabase con el "antídoto" para Vercel
-        # .strip() destruye cualquier espacio invisible o salto de línea accidental
+        # Conexión nativa de Python a Supabase — cero dependencias de terceros
         supabase_url = os.environ.get("SUPABASE_URL", "").strip()
         supabase_key = os.environ.get("SUPABASE_KEY", "").strip()
         
-        # persist_session=False apaga el guardado en disco que causa el Errno 16
-        opciones = ClientOptions(persist_session=False)
-        supabase: Client = create_client(supabase_url, supabase_key, options=opciones)
+        endpoint = f"{supabase_url}/rest/v1/verificacion_identidad"
         
         datos_insercion = {
             "id_alumno": id_alumno,
@@ -71,7 +72,21 @@ def leer_ine():
             "estado_verificacion": "pendiente_biometria"
         }
         
-        supabase.table("verificacion_identidad").insert(datos_insercion).execute()
+        datos_bytes = json.dumps(datos_insercion).encode('utf-8')
+        
+        req = urllib.request.Request(endpoint, data=datos_bytes, method='POST')
+        req.add_header('apikey', supabase_key)
+        req.add_header('Authorization', f'Bearer {supabase_key}')
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('Prefer', 'return=minimal')
+        
+        try:
+            with urllib.request.urlopen(req) as res:
+                pass  # 201 Created — éxito silencioso
+        except urllib.error.HTTPError as he:
+            return jsonify({"error": f"Error Supabase: {he.code} - {he.read().decode()}"}), 500
+        except urllib.error.URLError as ue:
+            return jsonify({"error": f"Error de red a BD: {str(ue.reason)}"}), 500
         
         return jsonify({
             "mensaje": "INE procesada con éxito",
