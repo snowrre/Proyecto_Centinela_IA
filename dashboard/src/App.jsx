@@ -191,11 +191,14 @@ export default function App() {
         darkMode={darkMode}
         studentName={studentData?.nombre_completo || studentData?.matricula}
         onAccept={() => {
-          // Términos aceptados ✔ — ahora validamos INE (si es primera vez) o vamos directo a cámara
-          if (studentData?.biometria_registrada === false) {
-            setView('validacion_ine');
-          } else {
+          // Términos aceptados ✔
+          // Si el alumno ya completó el KYC (INE + biometría) va directo a verificación en vivo
+          // Si no, empieza el flujo de registro: INE → AWS Face Match → Enrolamiento Facial
+          const yaRegistrado = studentData?.kyc_completado === true && studentData?.biometria_registrada === true;
+          if (yaRegistrado) {
             setView('biometric_auth');
+          } else {
+            setView('validacion_ine');
           }
         }}
         onReject={() => {

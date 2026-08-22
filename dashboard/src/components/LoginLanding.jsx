@@ -190,6 +190,7 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent, onGoToReg
               nombre_completo: alumnoData.nombre_completo,
               roomCode: roomCode,
               id_universidad: alumnoData.id_universidad,
+              kyc_completado: alumnoData.kyc_completado ?? false,
               biometria_registrada: alumnoData.biometria_registrada ?? false
             });
           }
