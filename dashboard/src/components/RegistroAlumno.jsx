@@ -116,7 +116,7 @@ function FormularioDatos({ onSiguiente, darkMode }) {
       .from('universidades')
       .select('id, nombre_institucion')
       .eq('dominio_permitido', dominioIngresado)
-      .single();
+      .maybeSingle();
       
     // 3. EL MURO DE SEGURIDAD (Aquí rebotamos a los intrusos)
     if (errorUni || !universidad) {
