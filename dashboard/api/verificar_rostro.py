@@ -1,53 +1,51 @@
 import os
 import boto3
-import tempfile
-
-# Asegurar que Vercel/Werkzeug use /tmp para cualquier archivo pesado en memoria
-os.environ['TMPDIR'] = '/tmp'
-tempfile.tempdir = '/tmp'
-
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Boto3 es tan inteligente que detectará automáticamente las variables 
-# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY y AWS_DEFAULT_REGION que pusiste en Vercel
-rekognition = boto3.client('rekognition')
+# Boto3 detecta automáticamente AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+# y AWS_REGION desde las variables de entorno de Vercel — sin hardcodear llaves
+rekognition = boto3.client(
+    'rekognition',
+    region_name=os.environ.get('AWS_REGION', 'us-east-2')
+)
 
 @app.route('/api/verificar_rostro', methods=['POST'])
 def verificar_rostro():
     try:
-        # 1. Recibir las dos imágenes desde el frontend en React
+        # Recibir las dos imágenes desde React como archivos multipart
         if 'foto_ine' not in request.files or 'foto_selfie' not in request.files:
             return jsonify({"error": "Faltan imágenes para la verificación"}), 400
 
-        foto_ine = request.files['foto_ine'].read()
+        foto_ine    = request.files['foto_ine'].read()
         foto_selfie = request.files['foto_selfie'].read()
 
-        # 2. Mandar a Amazon Rekognition a comparar
+        # Mandar a Amazon Rekognition a comparar ambas fotos
         response = rekognition.compare_faces(
             SourceImage={'Bytes': foto_ine},
             TargetImage={'Bytes': foto_selfie},
-            SimilarityThreshold=80.0  # Exigimos al menos un 80% de similitud biométrica
+            SimilarityThreshold=80.0  # Mínimo 80% de similitud biométrica
         )
 
-        # 3. Evaluar la respuesta de la IA
+        # Evaluar el veredicto de la IA
         if len(response['FaceMatches']) > 0:
             similitud = response['FaceMatches'][0]['Similarity']
             return jsonify({
-                "match": True,
+                "match":    True,
                 "similitud": similitud,
-                "mensaje": "¡Identidad verificada con éxito!"
+                "mensaje":  "¡Identidad verificada con éxito!"
             }), 200
         else:
             return jsonify({
-                "match": False,
-                "mensaje": "Los rostros no coinciden. Por favor, intenta de nuevo con mejor iluminación."
+                "match":   False,
+                "similitud": 0,
+                "mensaje": "Los rostros no coinciden. Intenta de nuevo con mejor iluminación."
             }), 401
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Configuración necesaria para pruebas locales (Vercel lo ignora)
+# Solo para pruebas locales — Vercel ignora este bloque
 if __name__ == '__main__':
     app.run(debug=True)
