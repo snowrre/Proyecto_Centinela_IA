@@ -108,8 +108,8 @@ function FormularioDatos({ onSiguiente, darkMode }) {
     }
     setError('');
     
-    // 1. Extraemos el dominio del correo
-    let dominioIngresado = correo.split('@')[1].toLowerCase();
+    // 1. Extraemos el dominio del correo y le agregamos el @ al principio
+    let dominioIngresado = "@" + correo.split('@')[1].toLowerCase();
     
     // 2. Tocamos la puerta de Supabase para ver si la universidad tiene convenio
     const { data: universidad, error: errorUni } = await supabase
