@@ -1,9 +1,11 @@
 import os
 import json
-import requests  # Reemplaza supabase-py por HTTP directo — cero toques al disco
 from flask import Flask, request, jsonify
 from google.cloud import vision
 from google.oauth2 import service_account
+
+# Importamos ClientOptions para apagar el uso del disco en Vercel
+from supabase import create_client, Client, ClientOptions
 
 app = Flask(__name__)
 
@@ -53,17 +55,15 @@ def leer_ine():
         texto_crudo = textos[0].description
         nombre_extraido = extraer_datos_ine(texto_crudo)
         
-        # 2. Guardar en Supabase usando su API REST pura (sin librería, sin archivos de sesión)
-        supabase_url = os.environ.get("SUPABASE_URL")
-        supabase_key = os.environ.get("SUPABASE_KEY")
+        # 2. Conectar a Supabase con el "antídoto" para Vercel
+        # .strip() destruye cualquier espacio invisible o salto de línea accidental
+        supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+        supabase_key = os.environ.get("SUPABASE_KEY", "").strip()
         
-        endpoint = f"{supabase_url}/rest/v1/verificacion_identidad"
-        headers = {
-            "apikey": supabase_key,
-            "Authorization": f"Bearer {supabase_key}",
-            "Content-Type": "application/json",
-            "Prefer": "return=minimal"
-        }
+        # persist_session=False apaga el guardado en disco que causa el Errno 16
+        opciones = ClientOptions(persist_session=False)
+        supabase: Client = create_client(supabase_url, supabase_key, options=opciones)
+        
         datos_insercion = {
             "id_alumno": id_alumno,
             "ine_nombre_extraido": nombre_extraido,
@@ -71,10 +71,7 @@ def leer_ine():
             "estado_verificacion": "pendiente_biometria"
         }
         
-        res = requests.post(endpoint, json=datos_insercion, headers=headers)
-        
-        if not res.ok:
-            return jsonify({"error": f"Error al guardar en BD: {res.text}"}), 500
+        supabase.table("verificacion_identidad").insert(datos_insercion).execute()
         
         return jsonify({
             "mensaje": "INE procesada con éxito",
