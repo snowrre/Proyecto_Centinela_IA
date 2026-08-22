@@ -16,6 +16,7 @@ import StudentPortal from './components/StudentPortal';
 import AdminDashboard from './components/AdminDashboard';
 import BiometricAuth from './components/BiometricAuth';
 import EnrolamientoFacial from './components/EnrolamientoFacial';
+import ValidacionINE from './components/ValidacionINE';
 import TerminosYPrivacidad from './components/TerminosYPrivacidad';
 import ProcesarPago from './components/ProcesarPago';
 import RegistroCampus from './components/RegistroCampus';
@@ -168,9 +169,9 @@ export default function App() {
         darkMode={darkMode}
         studentName={studentData?.nombre_completo || studentData?.matricula}
         onAccept={() => {
-          // Términos aceptados ✔ — ahora activar el semáforo de enrolamiento
+          // Términos aceptados ✔ — ahora validamos INE (si es primera vez) o vamos directo a cámara
           if (studentData?.biometria_registrada === false) {
-            setView('enrolamiento_facial');
+            setView('validacion_ine');
           } else {
             setView('biometric_auth');
           }
@@ -180,6 +181,21 @@ export default function App() {
           setStudentData(null);
           localStorage.removeItem('centinela_session');
           setView('landing');
+        }}
+      />
+    );
+  }
+
+  // ── 🛂 PASO 1: Validación de Identidad (INE) ─────────────────────────────
+  // Se muestra solo en el primer uso, antes del enrolamiento facial.
+  if (view === 'validacion_ine') {
+    return (
+      <ValidacionINE
+        idAlumno={studentData?.id}
+        darkMode={darkMode}
+        onSuccess={() => {
+          // INE validada con éxito ✓ — ahora enrolamos su rostro
+          setView('enrolamiento_facial');
         }}
       />
     );
