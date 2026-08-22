@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import Swal from 'sweetalert2';
 
-export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
+export default function LoginLanding({ onLoginTeacher, onLoginStudent, onGoToRegister }) {
   const [view, setView] = useState('selection'); // selection, teacher_login, student_login
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -402,7 +402,14 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                   <div className="mt-4 text-center animate-in fade-in duration-500">
                     <button 
                       type="button" 
-                      onClick={() => setIsRegistering(!isRegistering)}
+                      onClick={() => {
+                        if (!isRegistering && onGoToRegister) {
+                          // Redirigir al flujo KYC completo con verificación de INE y biometría
+                          onGoToRegister();
+                        } else {
+                          setIsRegistering(!isRegistering);
+                        }
+                      }}
                       className="text-xs text-blue-600 hover:underline font-bold transition-all"
                     >
                       {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate'}

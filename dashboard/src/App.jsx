@@ -21,6 +21,7 @@ import VerificacionRostroAWS from './components/VerificacionRostroAWS';
 import TerminosYPrivacidad from './components/TerminosYPrivacidad';
 import ProcesarPago from './components/ProcesarPago';
 import RegistroCampus from './components/RegistroCampus';
+import RegistroAlumno from './components/RegistroAlumno';
 import { useBiometric } from './context/BiometricContext';
 import { Toaster } from 'react-hot-toast';
 import { useDeviceRestriction } from './hooks/useDeviceRestriction';
@@ -132,7 +133,9 @@ export default function App() {
         onLoginTeacher={() => {
           localStorage.setItem('centinela_teacher', 'true');
           setView('teacher_dashboard');
-        }} 
+        }}
+        // Botón "¿No tienes cuenta?" redirige al flujo KYC completo
+        onGoToRegister={() => setView('registro_alumno')}
         onLoginStudent={async (data) => {
           setStudentData(data);
 
@@ -161,6 +164,22 @@ export default function App() {
             console.error('Error registrando conexión:', err);
           }
         }} 
+      />
+    );
+  }
+
+  // ── 🆕 REGISTRO KYC COMPLETO (nuevo alumno) ───────────────────────────────
+  if (view === 'registro_alumno') {
+    return (
+      <RegistroAlumno
+        darkMode={darkMode}
+        onExito={(datos) => {
+          // Cuenta creada con éxito ✓ — volvemos al login para que entre con su matrícula
+          import('react-hot-toast').then(({ default: toast }) =>
+            toast.success(`¡Bienvenido, ${datos.nombre}! Ya puedes iniciar sesión con tu matrícula.`)
+          );
+          setView('landing');
+        }}
       />
     );
   }
