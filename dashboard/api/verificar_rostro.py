@@ -1,5 +1,11 @@
 import os
 import boto3
+import tempfile
+
+# Asegurar que Vercel/Werkzeug use /tmp para cualquier archivo pesado en memoria
+os.environ['TMPDIR'] = '/tmp'
+tempfile.tempdir = '/tmp'
+
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
