@@ -192,12 +192,17 @@ export default function App() {
         studentName={studentData?.nombre_completo || studentData?.matricula}
         onAccept={() => {
           // Términos aceptados ✔
-          // Si el alumno ya completó el KYC (INE + biometría) va directo a verificación en vivo
-          // Si no, empieza el flujo de registro: INE → AWS Face Match → Enrolamiento Facial
-          const yaRegistrado = studentData?.kyc_completado === true && studentData?.biometria_registrada === true;
-          if (yaRegistrado) {
+          const kycListo = studentData?.kyc_completado === true;
+          const biometriaLista = studentData?.biometria_registrada === true;
+
+          if (kycListo && biometriaLista) {
+            // Ya tiene todo: va directo al examen con cámara en vivo
             setView('biometric_auth');
+          } else if (kycListo && !biometriaLista) {
+            // Pasó el INE pero le falta enrolar su rostro
+            setView('enrolamiento_facial');
           } else {
+            // Primera vez: empieza desde validar el INE
             setView('validacion_ine');
           }
         }}
