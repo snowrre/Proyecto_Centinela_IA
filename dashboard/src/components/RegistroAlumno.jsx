@@ -357,20 +357,20 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
 
   const crearCuentaEnSupabase = async () => {
     try {
-      const { error } = await supabase.from('alumnos').insert([{
-        id:                    datosFormulario.matricula, // Pasamos la matrícula como llave primaria
-        id_universidad:        datosFormulario.id_universidad, // Amarramos al alumno con su institución validada
-        nombre_completo:       datosFormulario.nombre,
-        correo:                datosFormulario.correo,
-        matricula:             datosFormulario.matricula,
-        biometria_registrada:  false, // Se registrará con @vladmandic/human en el siguiente flujo
-        kyc_completado:        true,
-        created_at:            new Date().toISOString(),
-      }]);
+      // El alumno ya existe en la BD desde el Paso 1 (FormularioDatos).
+      // Solo actualizamos su fila marcando que completó el KYC con AWS Rekognition.
+      const { error } = await supabase
+        .from('alumnos')
+        .update({
+          kyc_completado:   true,
+          updated_at:       new Date().toISOString(),
+        })
+        .eq('matricula', datosFormulario.matricula);
+
       if (error) throw error;
       setTimeout(() => onExito?.(datosFormulario), 2500);
     } catch (err) {
-      console.error('[RegistroAlumno] Error creando cuenta:', err);
+      console.error('[RegistroAlumno] Error actualizando cuenta:', err);
       setMensaje('Error al guardar la cuenta. Contacta al administrador.');
       setFase('error');
     }
