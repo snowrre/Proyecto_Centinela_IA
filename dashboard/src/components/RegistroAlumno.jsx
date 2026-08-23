@@ -124,7 +124,25 @@ function FormularioDatos({ onSiguiente, darkMode }) {
       return;
     }
     
-    // 4. Pasamos los datos junto con el ID de la universidad validada
+    // 4. Universidad válida — creamos el registro del alumno en la BD
+    //    (usamos upsert para tolerar el caso de que ya exista por un intento previo)
+    const { error: errorInsert } = await supabase.from('alumnos').upsert([{
+      id:               matricula,
+      matricula:        matricula,
+      nombre_completo:  nombre,
+      correo:           correo,
+      id_universidad:   universidad.id,
+      kyc_completado:   false,
+      biometria_registrada: false,
+      created_at:       new Date().toISOString(),
+    }], { onConflict: 'matricula' });
+
+    if (errorInsert) {
+      setError(`Error al crear la cuenta: ${errorInsert.message}`);
+      return;
+    }
+
+    // 5. Pasamos los datos junto con el ID de la universidad validada
     onSiguiente({ ...form, id_universidad: universidad.id });
   };
 
