@@ -135,7 +135,7 @@ function FormularioDatos({ onSiguiente, darkMode }) {
       kyc_completado:   false,
       biometria_registrada: false,
       created_at:       new Date().toISOString(),
-    }], { onConflict: 'matricula' });
+    }], { onConflict: 'id' }); // <-- ¡Usamos 'id' porque es la llave primaria (Primary Key) y por defecto es Única en Supabase!
 
     if (errorInsert) {
       setError(`Error al crear la cuenta: ${errorInsert.message}`);
