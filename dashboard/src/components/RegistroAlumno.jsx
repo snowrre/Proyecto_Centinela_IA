@@ -221,7 +221,8 @@ function ValidacionDocumental({ datosFormulario, onSiguiente, darkMode }) {
       const formData = new FormData();
       formData.append('foto', archivo);
 
-      const res = await fetch('/api/leer_ine', { method: 'POST', body: formData });
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+      const res = await fetch(`${apiUrl}/api/leer_ine`, { method: 'POST', body: formData });
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error || 'Error al leer la INE');
@@ -353,7 +354,8 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
       formData.append('foto_ine', archivoIne);
       formData.append('foto_selfie', selfieFile);
 
-      const res = await fetch('/api/verificar_rostro', { method: 'POST', body: formData });
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+      const res = await fetch(`${apiUrl}/api/verificar_rostro`, { method: 'POST', body: formData });
       const data = await res.json();
 
       if (res.ok && data.match) {

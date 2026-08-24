@@ -29,7 +29,8 @@ export default function ValidacionINE({ idAlumno, darkMode = false, onSuccess })
       // Usamos el idAlumno que entra por props
       formData.append('id_alumno', idAlumno || "9b1c8183-524d-4a48-9873-1ad87ae39576"); 
 
-      const respuesta = await fetch('/api/leer_ine', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+      const respuesta = await fetch(`${apiUrl}/api/leer_ine`, {
         method: 'POST',
         body: formData, 
       });

@@ -79,7 +79,8 @@ export default function VerificacionRostroAWS({ fotoIne, onExito, darkMode = fal
       formData.append('foto_ine', fotoIne);       // File original de la INE
       formData.append('foto_selfie', archivoSelfie);
 
-      const response = await fetch('/api/verificar_rostro', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+      const response = await fetch(`${apiUrl}/api/verificar_rostro`, {
         method: 'POST',
         body: formData,
       });
