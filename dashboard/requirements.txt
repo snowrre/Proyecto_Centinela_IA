@@ -1,5 +1,0 @@
-Flask
-boto3
-google-cloud-vision
-google-generativeai
-python-dotenv
