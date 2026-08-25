@@ -200,15 +200,25 @@ export default function EnrolamientoFacial({
         throw new Error('No se pudo calcular el vector biométrico.');
       }
 
-      const { error } = await supabase
+      // Agregamos .select() para forzar a Supabase a decirnos qué actualizó
+      const { data, error } = await supabase
         .from('alumnos')
         .update({
           huella_biometrica: vectorFinal,
           biometria_registrada: true,
         })
-        .eq('correo', correoInstitucional);
+        .eq('matricula', matricula) // <-- Usamos la matrícula como llave maestra
+        .select(); 
 
       if (error) throw error;
+      
+      // Pequeña validación para asegurarnos de que no hubo fallo silencioso
+      if (!data || data.length === 0) {
+          console.error("Fallo silencioso: No se encontró la matrícula en la BD.");
+          throw new Error("No se pudo guardar la biometría, verifica tu conexión.");
+      } else {
+          console.log("¡Biometría guardada con éxito!", data);
+      }
 
       setMensaje('¡FaceID configurado con éxito! Tu identidad quedó registrada.');
       setFase('exito');
