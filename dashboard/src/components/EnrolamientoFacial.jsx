@@ -200,6 +200,9 @@ export default function EnrolamientoFacial({
         throw new Error('No se pudo calcular el vector biométrico.');
       }
 
+      // ¡NUEVO: Hacemos que el celular nos muestre un pop-up con la variable!
+      alert("La variable que voy a buscar es: " + matricula); 
+
       // Agregamos .select() para forzar a Supabase a decirnos qué actualizó
       const { data, error } = await supabase
         .from('alumnos')
