@@ -585,6 +585,32 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
 
 
 
+            {/* Overlay para Captura de Foto Manual */}
+            <AnimatePresence>
+              {uiPhase === 'captura' && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="absolute bottom-6 left-0 right-0 flex flex-col items-center justify-center px-4"
+                >
+                  <div className="bg-black/70 backdrop-blur-md rounded-2xl p-4 shadow-2xl border border-white/10 w-full max-w-sm flex flex-col gap-4 text-center">
+                    <div>
+                      <h4 className="text-white font-bold mb-1">¡Prueba de vida superada!</h4>
+                      <p className="text-slate-300 text-sm">Mira a la cámara y asegúrate de tener buena iluminación para validar tu identidad.</p>
+                    </div>
+                    <button
+                      onClick={tomarFotoYValidar}
+                      className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      <Camera className="w-5 h-5" />
+                      Tomar Fotografía
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Overlay de Éxito */}
             <AnimatePresence>
               {uiPhase === 'success' && (
