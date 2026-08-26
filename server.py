@@ -324,6 +324,74 @@ def crear_campus():
         "id_universidad":   id_universidad
     }), 200
 
+# ── Endpoint: Estructurar Examen OCR con IA (Gemini) ──────────────────────────
+@app.route('/api/estructurar_examen_ocr', methods=['POST', 'OPTIONS'])
+def estructurar_examen_ocr():
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+        
+    try:
+        data = request.json
+        if not data or 'text' not in data:
+            return jsonify({'error': 'No text provided'}), 400
+
+        full_text = data['text']
+        api_key = os.getenv("GEMINI_API_KEY")
+        
+        if not api_key:
+            print("[Centinela] Error: GEMINI_API_KEY no encontrada.")
+            return jsonify({'error': 'No hay API Key de Gemini configurada en el servidor.'}), 500
+            
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Fase 1: Purificación
+        system_prompt1 = '''Eres un purificador de texto de exámenes.
+        Tus únicas 3 tareas son:
+        1. Detectar dónde empieza la pregunta número 1 (o la primera pregunta evaluativa).
+        2. ELIMINAR ABSOLUTAMENTE TODO el texto que esté antes de esa pregunta (nombres de instituciones, introducciones, instrucciones generales, fechas).
+        3. Corregir errores ortográficos generados por el escaneo OCR.
+        NO devuelvas un JSON. Devuelve únicamente el texto limpio de las preguntas.'''
+        
+        print("[Centinela] Iniciando Fase 1: Purificación OCR...")
+        response1 = model.generate_content(
+            f"{system_prompt1}\n\nPurifica este texto escaneado:\n\n{full_text}",
+            generation_config=genai.types.GenerationConfig(temperature=0.1)
+        )
+        clean_text = response1.text
+        
+        # Fase 2: Estructuración JSON
+        system_prompt2 = '''Eres un formateador de datos. Convierte el texto proporcionado en un objeto JSON estricto sin usar formato markdown.
+        ESTRUCTURA OBLIGATORIA:
+        {"preguntas": [ {"tipo": "multiple", "pregunta": "1. ¿Qué es...?", "opciones": ["a) ...", "b) ..."], "correcta": "a"} ]}
+        Si la pregunta no tiene opciones (incisos a, b, c), asígnale "tipo": "open" y "opciones": [].'''
+        
+        print("[Centinela] Iniciando Fase 2: Estructuración JSON...")
+        response2 = model.generate_content(
+            f"{system_prompt2}\n\nConvierte este texto limpio en JSON puramente (sin markdown):\n\n{clean_text}",
+            generation_config=genai.types.GenerationConfig(temperature=0.1)
+        )
+        
+        raw_json_text = response2.text.strip()
+        # Limpieza de bloque markdown si Gemini lo incluye por error
+        if raw_json_text.startswith("```json"):
+            raw_json_text = raw_json_text[7:]
+        elif raw_json_text.startswith("```"):
+            raw_json_text = raw_json_text[3:]
+        if raw_json_text.endswith("```"):
+            raw_json_text = raw_json_text[:-3]
+            
+        parsed_data = json.loads(raw_json_text.strip())
+        print("[Centinela] Procesamiento de IA completado exitosamente.")
+        return jsonify({'data': parsed_data, 'status': 'success'})
+        
+    except Exception as e:
+        print(f"[Centinela] Error procesando OCR con IA: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("Iniciando Centinela Backend Server en el puerto 5000...")
     app.run(host='0.0.0.0', port=5000, debug=False)

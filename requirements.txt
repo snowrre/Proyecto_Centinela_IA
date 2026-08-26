@@ -144,3 +144,5 @@ yarl==1.24.2
 zstandard==0.25.0
 gunicorn==20.1.0
 mercadopago
+google-generativeai
+google-generativeai==0.8.6

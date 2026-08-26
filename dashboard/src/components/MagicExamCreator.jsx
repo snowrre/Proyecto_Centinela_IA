@@ -6,7 +6,6 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { supabase } from '../lib/supabase';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Configuración del worker de PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -65,87 +64,50 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
 
       console.log("🔍 [DEBUG 0] TEXTO CRUDO DEL OCR:\n", fullText);
 
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      console.log("🔍 [DEBUG 0] TEXTO CRUDO DEL OCR:\n", fullText);
 
-      if (apiKey && apiKey.length > 10) {
-        try {
-          const genAI = new GoogleGenerativeAI(apiKey);
-          const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      try {
+        setOcrProgress(50);
+        setOcrStatus("Fase 1 y 2: IA procesando texto en el servidor...");
 
-          // =========================================================
-          // FASE 1: PURIFICACIÓN Y CORRECCIÓN ORTOGRÁFICA (Solo texto)
-          // =========================================================
-          setOcrProgress(50);
-          setOcrStatus("Fase 1: IA limpiando basura y corrigiendo OCR...");
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${apiUrl}/api/estructurar_examen_ocr`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ text: fullText })
+        });
 
-          const systemPrompt1 = `Eres un purificador de texto de exámenes.
-                  Tus únicas 3 tareas son:
-                  1. Detectar dónde empieza la pregunta número 1 (o la primera pregunta evaluativa).
-                  2. ELIMINAR ABSOLUTAMENTE TODO el texto que esté antes de esa pregunta (nombres de instituciones, introducciones, instrucciones generales, fechas).
-                  3. Corregir errores ortográficos generados por el escaneo OCR.
-                  NO devuelvas un JSON. Devuelve únicamente el texto limpio de las preguntas.`;
-          
-          const userPrompt1 = `Purifica este texto escaneado:\n\n${fullText}`;
-
-          const result1 = await model.generateContent({
-             contents: [{ role: 'user', parts: [{ text: systemPrompt1 + "\n\n" + userPrompt1 }] }],
-             generationConfig: { temperature: 0.1 }
-          });
-          const cleanText = result1.response.text();
-          
-          console.log("🧼 [DEBUG 1] TEXTO PURIFICADO POR LA IA:\n", cleanText);
-
-          // =========================================================
-          // FASE 2: ESTRUCTURACIÓN ESTRICTA (Generación de JSON)
-          // =========================================================
-          setOcrProgress(75);
-          setOcrStatus("Fase 2: IA estructurando datos en JSON...");
-
-          const systemPrompt2 = `Eres un formateador de datos. Convierte el texto proporcionado en un objeto JSON estricto sin usar formato markdown.
-                  ESTRUCTURA OBLIGATORIA:
-                  {"preguntas": [ {"tipo": "multiple", "pregunta": "1. ¿Qué es...?", "opciones": ["a) ...", "b) ..."], "correcta": "a"} ]}
-                  Si la pregunta no tiene opciones (incisos a, b, c), asígnale "tipo": "open" y "opciones": [].`;
-
-          const userPrompt2 = `Convierte este texto limpio en JSON puramente (sin markdown):\n\n${cleanText}`;
-
-          const result2 = await model.generateContent({
-             contents: [{ role: 'user', parts: [{ text: systemPrompt2 + "\n\n" + userPrompt2 }] }],
-             generationConfig: { 
-                 temperature: 0.1
-             }
-          });
-          const rawJsonText = result2.response.text();
-          console.log("🧠 [DEBUG 2] JSON FINAL:\n", rawJsonText);
-          
-          const parsedData = JSON.parse(rawJsonText);
-          const rawArray = parsedData.preguntas || [];
-          
-          // 3. Mapeo al Estado de React
-          const structuredQuestions = rawArray.map((item, index) => {
-            const isMultiple = item.tipo === 'multiple';
-            return {
-              id: crypto.randomUUID ? crypto.randomUUID() : `q-${Date.now()}-${index}`,
-              type: isMultiple ? 'multiple' : 'open',
-              text: item.pregunta || '',
-              options: isMultiple ? (item.opciones || []).map((txt, i) => ({ id: ['a','b','c','d','e'][i] || String(i), text: txt })) : [],
-              correctOption: isMultiple ? (item.correcta || 'a').toLowerCase() : null
-            };
-          });
-          
-          setQuestions(structuredQuestions);
-          setStep(3);
-          setOcrProgress(100);
-        } catch (iaError) {
-          console.warn("IA falló (posible falta de saldo). Activando Motor de Emergencia (Regex)...", iaError);
-          const fallbackQs = parseQuestionsFromText(fullText);
-          setQuestions(fallbackQs);
-          setStep(3);
-          setOcrProgress(100);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Error en el servidor de IA');
         }
 
-      } else {
-          setErrorMessage("No hay API Key configurada.");
-          setStep(1);
+        const data = await response.json();
+        const rawArray = data.data.preguntas || [];
+
+        // 3. Mapeo al Estado de React
+        const structuredQuestions = rawArray.map((item, index) => {
+          const isMultiple = item.tipo === 'multiple';
+          return {
+            id: crypto.randomUUID ? crypto.randomUUID() : `q-${Date.now()}-${index}`,
+            type: isMultiple ? 'multiple' : 'open',
+            text: item.pregunta || '',
+            options: isMultiple ? (item.opciones || []).map((txt, i) => ({ id: ['a','b','c','d','e'][i] || String(i), text: txt })) : [],
+            correctOption: isMultiple ? (item.correcta || 'a').toLowerCase() : null
+          };
+        });
+
+        setQuestions(structuredQuestions);
+        setStep(3);
+        setOcrProgress(100);
+      } catch (iaError) {
+        console.warn("IA falló en el servidor. Activando Motor de Emergencia (Regex)...", iaError);
+        const fallbackQs = parseQuestionsFromText(fullText);
+        setQuestions(fallbackQs);
+        setStep(3);
+        setOcrProgress(100);
       }
     } catch (error) {
       console.error("❌ [DEBUG ERROR] FALLO COMPLETO:", error);
