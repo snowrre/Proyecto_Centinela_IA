@@ -443,22 +443,27 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
         <div className="flex-1 overflow-y-auto p-10">
           <div className="max-w-4xl mx-auto space-y-8 pb-32">
             
-            {/* ALERTA DE ERROR VISUAL */}
+            {/* ALERTA DE ERROR VISUAL - DISEÑO PREMIUM */}
             {errorTiempo && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    ⚠️
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm text-red-700 font-medium">
-                      No se puede publicar el examen
-                    </p>
-                    <p className="text-sm text-red-600 mt-1">
-                      {errorTiempo}
-                    </p>
-                  </div>
+              <div className="bg-red-50/80 border border-red-200 rounded-2xl p-4 mb-6 flex items-start shadow-sm transform transition-all duration-300">
+                
+                {/* Icono SVG elegante */}
+                <div className="flex-shrink-0 bg-red-100 p-2 rounded-full mr-3 mt-0.5">
+                  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
                 </div>
+
+                {/* Textos */}
+                <div>
+                  <h4 className="text-sm font-bold text-red-800 mb-1">
+                    Revisa la configuración de tiempo
+                  </h4>
+                  <p className="text-sm text-red-600/90 leading-relaxed">
+                    {errorTiempo}
+                  </p>
+                </div>
+
               </div>
             )}
             
