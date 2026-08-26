@@ -140,11 +140,10 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
     if (enviando) return;
     setEnviando(true);
     
-    // 1. Levantamos el modal bonito que bloquea la pantalla
+    // 1. ACTIVAMOS EL DISEÑO BONITO (Esto reemplaza al alert feo)
     setMostrarModalGuillotina(true);
 
     try {
-      // 2. Le decimos a Supabase que fue un envío forzado por tiempo
       if (esForzoso && sesion) {
         await supabase
           .from('exam_sessions')
@@ -152,18 +151,18 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
           .eq('id', sesion.id);
       }
 
-      // 3. EL TÚNEL AL PROFESOR: 
+      // 2. EL TÚNEL (Aquí pondremos tu función cuando me la mandes)
       if (typeof onTimeUp === 'function') {
          await onTimeUp(); 
       }
 
-      // 4. Le damos 3 segundos al alumno para que vea el mensaje bonito, y lo sacamos.
+      // 3. Esperamos 4 segundos para que el alumno lea el modal bonito y luego lo sacamos
       setTimeout(() => {
-        window.location.href = "/";
-      }, 3000);
+        window.location.href = "/dashboard-alumnos";
+      }, 4000);
 
     } catch (error) {
-      console.error("Error en el túnel de envío:", error);
+      console.error("Error en la guillotina:", error);
     }
   };
 
