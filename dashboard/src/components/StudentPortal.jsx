@@ -588,6 +588,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
     if (loading) return;
     setLoading(true);
       
+    try {
       const resolvedPin = formData.pin || studentData?.pin || studentData?.roomCode || '';
       
       // ── NUEVA ARQUITECTURA: Calificación Híbrida Local (Edge Computing) ──
