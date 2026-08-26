@@ -79,20 +79,32 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
   // 2. Función matemática para calcular qué tiempo se acaba primero
   const calcularRestante = (examen, sesion) => {
     const ahora = new Date().getTime();
+    const ahoraLocal = new Date();
     let limites = [];
 
+    console.log("=== DEBUG DE TIEMPOS ===");
+    console.log("Hora actual navegador:", ahoraLocal.toString());
+    
     // Límite 1: Duración individual del alumno
-    if (examen.duracion_minutos) {
+    if (examen.duracion_minutos && sesion.hora_inicio_real) {
       const inicioReal = new Date(sesion.hora_inicio_real).getTime();
-      const limiteIndividual = inicioReal + (examen.duracion_minutos * 60 * 1000);
-      limites.push(limiteIndividual);
+      const finIndividual = inicioReal + (examen.duracion_minutos * 60 * 1000);
+      limites.push(finIndividual);
+      
+      console.log("Hora cierre individual:", new Date(finIndividual).toString());
+      console.log("¿Ya se pasó individual?:", ahoraLocal.getTime() > finIndividual);
     }
 
-    // Límite 2: Cierre global del profesor
+    // Límite 2: Fecha global de cierre configurada por el profesor
     if (examen.fecha_fin_global) {
-      const limiteGlobal = new Date(examen.fecha_fin_global).getTime();
-      limites.push(limiteGlobal);
+      const finGlobal = new Date(examen.fecha_fin_global).getTime();
+      limites.push(finGlobal);
+      
+      console.log("Hora cierre Supabase:", new Date(finGlobal).toString());
+      console.log("¿Ya se pasó global?:", ahoraLocal.getTime() > finGlobal);
     }
+    
+    console.log("========================");
 
     // Si el examen no tiene ningún límite configurado
     if (limites.length === 0) {

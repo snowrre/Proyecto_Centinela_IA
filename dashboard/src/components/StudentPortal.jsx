@@ -469,6 +469,17 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
         }
         setIsWarmingUp(false);
 
+        // 1. Aquí actualizamos la hora_inicio_real a Supabase a ESTE SEGUNDO EXACTO
+        const horaExactaUTC = new Date().toISOString();
+        if (studentData) {
+          supabase
+            .from('exam_sessions')
+            .update({ hora_inicio_real: horaExactaUTC })
+            .eq('matricula_alumno', studentData.matricula)
+            .eq('pin_sala', studentData.roomCode || studentData.pin)
+            .then(() => console.log('Reloj iniciado en DB'));
+        }
+
         // ── INICIAR MONITOREO BIOMÉTRICO SILENCIOSO ──────────────────────
         // Se ejecuta en segundo plano cada 10 segundos (setTimeout recursivo).
         // Compara el rostro actual con el Rostro Maestro guardado en el login.
@@ -1006,7 +1017,8 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                 </div>
               </div>
 
-              {/* LADO DERECHO: EXAMEN */}
+              {/* LADO DERECHO: EXAMEN (Bloqueo Estricto hasta que termine isWarmingUp) */}
+              {!isWarmingUp ? (
               <div className={cn("flex-1 rounded-[40px] border overflow-hidden flex flex-col shadow-2xl relative", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
                 
                 {/* BARRA DE PROGRESO MINIMALISTA SUPERIOR */}
@@ -1175,6 +1187,13 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                     </div>
                 </div>
                </div>
+              ) : (
+                <div className={cn("flex-1 rounded-[40px] border overflow-hidden flex flex-col items-center justify-center shadow-2xl relative p-12 text-center", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200")}>
+                  <Loader2 className="w-16 h-16 text-blue-500 animate-spin mb-6" />
+                  <h3 className="text-2xl font-black uppercase tracking-tight mb-2">Preparando Examen</h3>
+                  <p className="text-sm text-neutral-500 font-medium">Por favor espera mientras el motor de Inteligencia Artificial inicializa el entorno seguro...</p>
+                </div>
+              )}
                </>
               )}
             </motion.div>
