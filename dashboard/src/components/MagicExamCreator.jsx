@@ -31,6 +31,7 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
   const [duracionMinutos, setDuracionMinutos] = useState('');
   const [fechaInicioGlobal, setFechaInicioGlobal] = useState('');
   const [fechaFinGlobal, setFechaFinGlobal] = useState('');
+  const [errorTiempo, setErrorTiempo] = useState('');
 
   useEffect(() => {
     if (questions.length > 0) {
@@ -189,28 +190,25 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
   };
 
   const handleCreateRoom = async () => {
+    setErrorTiempo('');
     if (questions.length === 0) {
       setErrorMessage('El examen está vacío.');
       return;
     }
 
     // Validación Matemática de Tiempos
-    if (duracionMinutos && fechaInicioGlobal && fechaFinGlobal) {
-      const inicio = new Date(fechaInicioGlobal);
-      const fin = new Date(fechaFinGlobal);
-      const diferenciaMinutos = (fin - inicio) / (1000 * 60);
-
-      if (diferenciaMinutos < parseInt(duracionMinutos)) {
-        setErrorMessage(`Error de lógica: Pusiste que el examen dura ${duracionMinutos} minutos, pero la ventana de apertura y cierre es de solo ${Math.round(diferenciaMinutos)} minutos.`);
-        return;
-      }
-    }
-    
     if (fechaInicioGlobal && fechaFinGlobal) {
       const inicio = new Date(fechaInicioGlobal);
       const fin = new Date(fechaFinGlobal);
+      const diferenciaMinutos = (fin.getTime() - inicio.getTime()) / 1000 / 60;
+
       if (fin <= inicio) {
-        setErrorMessage('Error: La fecha de cierre debe ser posterior a la fecha de apertura.');
+        setErrorTiempo('La fecha de cierre no puede ser antes (o igual) que la de apertura.');
+        return;
+      }
+
+      if (duracionMinutos && parseInt(duracionMinutos) > diferenciaMinutos) {
+        setErrorTiempo(`El examen dura ${duracionMinutos} minutos, pero la ventana de disponibilidad es de solo ${Math.round(diferenciaMinutos)} minutos.`);
         return;
       }
     }
@@ -290,28 +288,25 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
   };
 
   const handlePublishExternalLink = async () => {
+    setErrorTiempo('');
     if (!externalLink || externalLink.trim() === '') {
       setErrorMessage('Por favor, ingresa un enlace válido.');
       return;
     }
 
     // Validación Matemática de Tiempos
-    if (duracionMinutos && fechaInicioGlobal && fechaFinGlobal) {
-      const inicio = new Date(fechaInicioGlobal);
-      const fin = new Date(fechaFinGlobal);
-      const diferenciaMinutos = (fin - inicio) / (1000 * 60);
-
-      if (diferenciaMinutos < parseInt(duracionMinutos)) {
-        setErrorMessage(`Error de lógica: Pusiste que el examen dura ${duracionMinutos} minutos, pero la ventana de apertura y cierre es de solo ${Math.round(diferenciaMinutos)} minutos.`);
-        return;
-      }
-    }
-    
     if (fechaInicioGlobal && fechaFinGlobal) {
       const inicio = new Date(fechaInicioGlobal);
       const fin = new Date(fechaFinGlobal);
+      const diferenciaMinutos = (fin.getTime() - inicio.getTime()) / 1000 / 60;
+
       if (fin <= inicio) {
-        setErrorMessage('Error: La fecha de cierre debe ser posterior a la fecha de apertura.');
+        setErrorTiempo('La fecha de cierre no puede ser antes (o igual) que la de apertura.');
+        return;
+      }
+
+      if (duracionMinutos && parseInt(duracionMinutos) > diferenciaMinutos) {
+        setErrorTiempo(`El examen dura ${duracionMinutos} minutos, pero la ventana de disponibilidad es de solo ${Math.round(diferenciaMinutos)} minutos.`);
         return;
       }
     }
@@ -447,6 +442,25 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
 
         <div className="flex-1 overflow-y-auto p-10">
           <div className="max-w-4xl mx-auto space-y-8 pb-32">
+            
+            {/* ALERTA DE ERROR VISUAL */}
+            {errorTiempo && (
+              <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md shadow-sm">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    ⚠️
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-red-700 font-medium">
+                      No se puede publicar el examen
+                    </p>
+                    <p className="text-sm text-red-600 mt-1">
+                      {errorTiempo}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             
             {/* TARJETA DE CONFIGURACIÓN DE TIEMPO */}
             <div className="bg-white dark:bg-[#111111] p-6 rounded-[32px] shadow-sm border border-neutral-200 dark:border-white/10 mb-6 transition-all hover:border-blue-500/30">
