@@ -134,9 +134,8 @@ export function useBiometricMonitor() {
         hand: { enabled: false },
         object: { 
           enabled: true, 
-          // QUITAMOS el maxSize para que vea el celular en Alta Resolución
-          // Bajamos la confianza interna a 15% para que sea ultra sensible
-          minConfidence: 0.15 
+          // Subimos la confianza al 50%. Si la IA no está al menos la mitad de segura, no es un teléfono.
+          minConfidence: 0.50 
         }, 
         gesture: { enabled: false }
       });
@@ -211,27 +210,25 @@ export function useBiometricMonitor() {
           let activeViolation = null;
 
           // ========================================================
-          // LÓGICA HUMAN UNIFICADA (Rostros, Ángulos y Objetos)
+          // LÓGICA HUMAN UNIFICADA (Calibración de Grado Empresarial)
           // ========================================================
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
               
-              // 1. SENSOR DE CELULARES Y PANTALLAS (Ultra sensible y silencioso)
+              // 1. SENSOR DE CELULARES Y PANTALLAS (Preciso y sin falsos positivos)
               if (result.object && result.object.length > 0) {
-                  // Buscamos cualquier tipo de dispositivo que se parezca a un celular o pantalla
                   const dispositivo = result.object.find(obj => 
                       ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop'].includes(obj.label)
                   );
                   
-                  // ¡LA CLAVE ESTÁ AQUÍ! Bajamos el umbral a 15% (0.15) 
-                  // porque un teléfono de espaldas o pantalla encendida marca ~20-27%
-                  if (dispositivo && dispositivo.score > 0.15) {
+                  // Exigimos un 50% (0.50) de seguridad para evitar alucinaciones
+                  if (dispositivo && dispositivo.score > 0.50) {
                       isPhoneDetected = true;
                       activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
                   }
               }
 
-              // 2. SENSORES DE ROSTRO Y MIRADA (Solo si no hay celular detectado)
+              // 2. SENSORES DE ROSTRO Y MIRADA (Ejes separados y simétricos)
               if (!activeViolation) {
                   if (result.face && result.face.length > 1) {
                       currentPersonCount = result.face.length;
@@ -245,19 +242,22 @@ export function useBiometricMonitor() {
                       currentPersonCount = 1;
                       const rostro = result.face[0];
                       
-                      // Human devuelve radianes directamente
-                      yaw = Math.abs(rostro.rotation?.angle?.yaw || 0);
+                      // Extraemos los radianes puros, respetando los signos negativos (sin Math.abs)
+                      yaw = rostro.rotation?.angle?.yaw || 0;
                       pitch = rostro.rotation?.angle?.pitch || 0;
 
-                      // Ajuste perfecto: 0.45 (Aprox 25 grados). Detecta el giro antes de perder el rostro.
-                      if (yaw > 0.45) {
-                          activeViolation = "MIRADA DESVIADA (LADOS)";
-                      } else if (pitch > 0.45) {
+                      // 0.55 radianes = ~31 grados. Evaluación individual por cada lado de la cara.
+                      if (yaw > 0.55) {
+                          activeViolation = "MIRADA DESVIADA (IZQUIERDA)";
+                      } else if (yaw < -0.55) {
+                          activeViolation = "MIRADA DESVIADA (DERECHA)";
+                      } else if (pitch > 0.50) {
                           activeViolation = "MIRADA DESVIADA (ABAJO)";
+                      } else if (pitch < -0.50) {
+                          activeViolation = "MIRADA DESVIADA (ARRIBA)"; 
                       }
                   }
               } else {
-                  // Mantenemos la cuenta de personas actualizada aunque haya infracción de celular
                   currentPersonCount = result.face ? result.face.length : 0;
               }
           }
