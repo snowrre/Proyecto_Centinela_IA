@@ -381,7 +381,7 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
       console.log(`[BiometricAuth] 🧠 AWS Confirmado. Similitud: ${data.similitud}%`);
       
       // ✅ Todo validado, finalizar acceso
-      finalizarAccesoExitoso(rostroMaestro);
+      finalizarAccesoExitoso();
       
     } catch (err) {
       console.error('[BiometricAuth] Error validando con AWS:', err);
@@ -514,7 +514,10 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
             <canvas
               ref={canvasRef}
               id="biometric-canvas"
-              className="absolute inset-0 w-full h-full object-cover scale-x-[-1] pointer-events-none"
+              className={cn(
+                "absolute inset-0 w-full h-full object-cover scale-x-[-1] pointer-events-none transition-opacity duration-500",
+                uiPhase === 'challenge' ? 'opacity-100' : 'opacity-0'
+              )}
               style={{ background: 'transparent' }}
             />
 
