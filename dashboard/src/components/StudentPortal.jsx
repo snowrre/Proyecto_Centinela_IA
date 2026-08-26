@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { useBiometricMonitor } from '../hooks/useBiometricMonitor';
 import SalaDiagnostico from './SalaDiagnostico';
+import CronometroExamen from './CronometroExamen';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -1044,6 +1045,12 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-12 space-y-12">
+                    <CronometroExamen 
+                      pin={formData.pin || studentData?.pin || studentData?.roomCode || ''} 
+                      matricula={formData.matricula || studentData?.matricula || ''} 
+                      onTimeUp={handleSubmitExam} 
+                    />
+                    
                     {examData?.externalLink ? (
                       <div className="flex flex-col gap-4 h-full">
                         <button

@@ -1,0 +1,187 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase'; 
+
+export default function CronometroExamen({ pin, matricula, onTimeUp }) {
+  const [tiempoRestante, setTiempoRestante] = useState(null); // en segundos
+  const [sesion, setSesion] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+
+  // 1. Cargar configuración del examen y sesión del alumno al entrar
+  useEffect(() => {
+    async function inicializarReloj() {
+      try {
+        // A) Traer los límites del examen (duración y fecha fin global)
+        const { data: examenData, error: errExamen } = await supabase
+          .from('exams')
+          .select('duracion_minutos, fecha_fin_global')
+          .eq('pin_sala', pin)
+          .single();
+
+        if (errExamen) throw errExamen;
+
+        // B) Buscar si ya existe una sesión para este alumno en este examen
+        let { data: sesionData, error: errSesion } = await supabase
+          .from('exam_sessions')
+          .select('*')
+          .eq('pin_sala', pin)
+          .eq('matricula_alumno', matricula)
+          .maybeSingle();
+
+        // Si es su primera vez entrando, creamos su registro con el segundo exacto
+        if (!sesionData) {
+          const { data: nuevaSesion, error: errNew } = await supabase
+            .from('exam_sessions')
+            .insert([
+              { 
+                pin_sala: pin, 
+                matricula_alumno: matricula, 
+                hora_inicio_real: new Date().toISOString() 
+              }
+            ])
+            .select()
+            .single();
+
+          if (errNew) throw errNew;
+          sesionData = nuevaSesion;
+        } else if (!sesionData.hora_inicio_real) {
+          // Si fue creado en login sin hora de inicio real, la actualizamos
+          const { data: sesionActualizada, error: errUpdate } = await supabase
+            .from('exam_sessions')
+            .update({ hora_inicio_real: new Date().toISOString() })
+            .eq('id', sesionData.id)
+            .select()
+            .single();
+          if (!errUpdate && sesionActualizada) {
+            sesionData = sesionActualizada;
+          } else {
+            sesionData.hora_inicio_real = new Date().toISOString();
+          }
+        }
+
+        setSesion(sesionData);
+
+        // C) Calcular el tiempo restante inicial
+        calcularRestante(examenData, sesionData);
+
+      } catch (error) {
+        console.error("Error al inicializar el tiempo del examen:", error);
+      }
+    }
+
+    if (pin && matricula) {
+      inicializarReloj();
+    }
+  }, [pin, matricula]);
+
+  // 2. Función matemática para calcular qué tiempo se acaba primero
+  const calcularRestante = (examen, sesion) => {
+    const ahora = new Date().getTime();
+    let limites = [];
+
+    // Límite 1: Duración individual del alumno
+    if (examen.duracion_minutos) {
+      const inicioReal = new Date(sesion.hora_inicio_real).getTime();
+      const limiteIndividual = inicioReal + (examen.duracion_minutos * 60 * 1000);
+      limites.push(limiteIndividual);
+    }
+
+    // Límite 2: Cierre global del profesor
+    if (examen.fecha_fin_global) {
+      const limiteGlobal = new Date(examen.fecha_fin_global).getTime();
+      limites.push(limiteGlobal);
+    }
+
+    // Si el examen no tiene ningún límite configurado
+    if (limites.length === 0) {
+      setTiempoRestante(null);
+      return;
+    }
+
+    // Tomamos el límite más cercano (el que venza primero)
+    const tiempoFinalExamen = Math.min(...limites);
+    const segundos = Math.floor((tiempoFinalExamen - ahora) / 1000);
+
+    if (segundos <= 0) {
+      setTiempoRestante(0);
+      ejecutarGuillotina(true); // ¡Se acabó el tiempo!
+    } else {
+      setTiempoRestante(segundos);
+    }
+  };
+
+  // 3. El motor de cuenta regresiva (corre cada 1 segundo)
+  useEffect(() => {
+    if (tiempoRestante === null || tiempoRestante <= 0) return;
+
+    const intervalo = setInterval(() => {
+      setTiempoRestante((prev) => {
+        if (prev <= 1) {
+          clearInterval(intervalo);
+          ejecutarGuillotina(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(intervalo);
+  }, [tiempoRestante]);
+
+  // 4. La Guillotina: Auto-envío forzoso
+  const ejecutarGuillotina = async (esForzoso = false) => {
+    if (enviando) return;
+    setEnviando(true);
+
+    try {
+      if (esForzoso && sesion) {
+        // Registramos en Supabase que el examen se cerró por tiempo
+        await supabase
+          .from('exam_sessions')
+          .update({ envio_forzado: true })
+          .eq('id', sesion.id);
+      }
+
+      if (esForzoso) {
+        alert("⏱️ ¡El tiempo ha terminado! Tu examen se enviará automáticamente.");
+        if (onTimeUp) {
+            onTimeUp();
+        } else {
+            window.location.href = "/";
+        }
+      }
+    } catch (error) {
+      console.error("Error al ejecutar el auto-envío:", error);
+    }
+  };
+
+  // Formato visual amigable (HH:MM:SS o MM:SS)
+  const formatearReloj = (segundosTotales) => {
+    const horas = Math.floor(segundosTotales / 3600);
+    const minutos = Math.floor((segundosTotales % 3600) / 60);
+    const segundos = segundosTotales % 60;
+
+    if (horas > 0) {
+      return `${horas}:${minutos < 10 ? '0' : ''}${minutos}:${segundos < 10 ? '0' : ''}${segundos}`;
+    }
+    return `${minutos}:${segundos < 10 ? '0' : ''}${segundos}`;
+  };
+
+  return (
+    <div className="bg-white dark:bg-[#111111] px-6 py-3 rounded-2xl shadow-sm border border-gray-100 dark:border-white/10 flex items-center justify-between mb-6">
+      <div className="flex items-center space-x-2">
+        <span className="w-3 h-3 bg-green-500 rounded-full animate-ping"></span>
+        <span className="text-sm font-semibold text-gray-600 dark:text-neutral-300">Evaluación Segura en Curso</span>
+      </div>
+
+      {tiempoRestante !== null && (
+        <div className={`font-mono text-base font-bold px-4 py-1.5 rounded-xl transition-all ${
+          tiempoRestante < 300 
+            ? 'bg-red-100 text-red-600 animate-pulse border border-red-200' 
+            : 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-100 dark:border-blue-800'
+        }`}>
+          ⏳ Tiempo: {formatearReloj(tiempoRestante)}
+        </div>
+      )}
+    </div>
+  );
+}
