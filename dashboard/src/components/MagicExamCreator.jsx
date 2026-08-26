@@ -27,6 +27,11 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
   const [externalLink, setExternalLink] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Estados para la configuración de tiempo
+  const [duracionMinutos, setDuracionMinutos] = useState('');
+  const [fechaInicioGlobal, setFechaInicioGlobal] = useState('');
+  const [fechaFinGlobal, setFechaFinGlobal] = useState('');
+
   useEffect(() => {
     if (questions.length > 0) {
       localStorage.setItem('draft_exam', JSON.stringify({ title: examTitle, questions }));
@@ -213,7 +218,10 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
         tipo: 'nativo',
         pin_sala: generatedPin,
         id_profesor: idProfesorActual, // ✅ Enlace maestro establecido
-        id_universidad: idUniversidadActual // ✅ Aislamiento Cross-Tenant establecido
+        id_universidad: idUniversidadActual, // ✅ Aislamiento Cross-Tenant establecido
+        duracion_minutos: duracionMinutos ? parseInt(duracionMinutos) : null,
+        fecha_inicio_global: fechaInicioGlobal || null,
+        fecha_fin_global: fechaFinGlobal || null
       };
 
       const { data: examData, error: examError } = await supabase
@@ -290,7 +298,10 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
         pin_sala: generatedPin,
         url_formulario: externalLink.trim(),
         id_profesor: idProfesorActual, // ✅ Enlace maestro establecido
-        id_universidad: idUniversidadActual // ✅ Aislamiento Cross-Tenant establecido
+        id_universidad: idUniversidadActual, // ✅ Aislamiento Cross-Tenant establecido
+        duracion_minutos: duracionMinutos ? parseInt(duracionMinutos) : null,
+        fecha_inicio_global: fechaInicioGlobal || null,
+        fecha_fin_global: fechaFinGlobal || null
       };
 
       const { error } = await supabase
@@ -392,6 +403,56 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
 
         <div className="flex-1 overflow-y-auto p-10">
           <div className="max-w-4xl mx-auto space-y-8 pb-32">
+            
+            {/* TARJETA DE CONFIGURACIÓN DE TIEMPO */}
+            <div className="bg-white dark:bg-[#111111] p-6 rounded-[32px] shadow-sm border border-neutral-200 dark:border-white/10 mb-6 transition-all hover:border-blue-500/30">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4 border-b dark:border-white/10 pb-4 flex items-center gap-2">
+                ⏱️ Configuración de Tiempo
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                {/* 1. Cronómetro Individual */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-neutral-300 mb-2">
+                    Duración (Minutos)
+                  </label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    placeholder="Ej. 60 (Vacío = Sin límite)"
+                    className="w-full border border-gray-300 dark:border-white/10 dark:bg-black dark:text-white rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    value={duracionMinutos}
+                    onChange={(e) => setDuracionMinutos(e.target.value)}
+                  />
+                </div>
+
+                {/* 2. Ventana de Apertura */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-neutral-300 mb-2">
+                    Apertura del Examen
+                  </label>
+                  <input 
+                    type="datetime-local" 
+                    className="w-full border border-gray-300 dark:border-white/10 dark:bg-black dark:text-white rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    value={fechaInicioGlobal}
+                    onChange={(e) => setFechaInicioGlobal(e.target.value)}
+                  />
+                </div>
+
+                {/* 3. Ventana de Cierre (Guillotina Global) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-neutral-300 mb-2">
+                    Cierre del Examen
+                  </label>
+                  <input 
+                    type="datetime-local" 
+                    className="w-full border border-gray-300 dark:border-white/10 dark:bg-black dark:text-white rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    value={fechaFinGlobal}
+                    onChange={(e) => setFechaFinGlobal(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
             {questions.map((q, index) => (
               <motion.div key={q.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={cn("p-10 rounded-[32px] border relative transition-all group", darkMode ? "bg-[#111111] border-white/10 hover:border-blue-500/30" : "bg-white border-neutral-200 hover:shadow-xl")}>
                 <div className="absolute top-6 right-6 flex items-center gap-2">
