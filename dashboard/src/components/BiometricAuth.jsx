@@ -391,25 +391,8 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
   };
 
   const finalizarAccesoExitoso = async (embedding) => {
-    // ── Persistencia de Huella Maestra en Supabase (exam_sessions) ────
-    try {
-      if (studentInfo?.matricula && (studentInfo?.roomCode || studentInfo?.pin)) {
-        const pin = studentInfo.roomCode || studentInfo.pin;
-        const { error } = await supabase
-          .from('exam_sessions')
-          .update({ huella_facial_maestra: Array.from(embedding) })
-          .eq('matricula_alumno', studentInfo.matricula)
-          .eq('pin_sala', pin);
-        
-        if (error) {
-          console.error('[BiometricAuth] Error de Supabase al guardar huella:', error);
-        } else {
-          console.log('[BiometricAuth] Huella maestra guardada exitosamente en Supabase.');
-        }
-      }
-    } catch (err) {
-      console.error('[BiometricAuth] Error guardando huella maestra:', err);
-    }
+    // Ya no guardamos la huella matemática local en Supabase,
+    // porque AWS Rekognition se encarga de la validación usando la foto oficial.
 
     setLivenessApproved(true);
     setUiPhase('success');
