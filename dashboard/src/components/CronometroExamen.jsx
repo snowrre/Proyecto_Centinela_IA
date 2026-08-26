@@ -79,52 +79,38 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
   // 2. Función matemática para calcular qué tiempo se acaba primero
   const calcularRestante = (examen, sesion) => {
     const ahora = new Date().getTime();
-    const ahoraLocal = new Date();
     let limites = [];
 
-    console.log("=== DEBUG DE TIEMPOS ===");
-    console.log("Hora actual navegador:", ahoraLocal.toString());
-    
     // Límite 1: Duración individual del alumno
     if (examen.duracion_minutos && sesion.hora_inicio_real) {
-      const inicioString = sesion.hora_inicio_real.endsWith('Z') 
-                           ? sesion.hora_inicio_real 
-                           : `${sesion.hora_inicio_real}Z`;
-      const inicioReal = new Date(inicioString).getTime();
-      const finIndividual = inicioReal + (examen.duracion_minutos * 60 * 1000);
-      limites.push(finIndividual);
-      
-      console.log("Hora cierre individual:", new Date(finIndividual).toString());
-      console.log("¿Ya se pasó individual?:", ahoraLocal.getTime() > finIndividual);
+      const inicioReal = new Date(sesion.hora_inicio_real).getTime();
+      const limiteIndividual = inicioReal + (examen.duracion_minutos * 60 * 1000);
+      limites.push(limiteIndividual);
     }
 
-    // Límite 2: Fecha global de cierre configurada por el profesor
+    // Límite 2: Cierre global del profesor
     if (examen.fecha_fin_global) {
-      const fechaString = examen.fecha_fin_global.endsWith('Z') 
-                          ? examen.fecha_fin_global 
-                          : `${examen.fecha_fin_global}Z`;
-      const finGlobal = new Date(fechaString).getTime();
-      limites.push(finGlobal);
-      
-      console.log("Hora cierre Supabase:", new Date(finGlobal).toString());
-      console.log("¿Ya se pasó global?:", ahoraLocal.getTime() > finGlobal);
+      const limiteGlobal = new Date(examen.fecha_fin_global).getTime();
+      limites.push(limiteGlobal);
     }
-    
-    console.log("========================");
 
-    // Si el examen no tiene ningún límite configurado
     if (limites.length === 0) {
       setTiempoRestante(null);
       return;
     }
 
-    // Tomamos el límite más cercano (el que venza primero)
     const tiempoFinalExamen = Math.min(...limites);
     const segundos = Math.floor((tiempoFinalExamen - ahora) / 1000);
 
+    // DEBUG LIMPIO PARA VER LA HORA REAL DE MÉXICO
+    console.log("=== DEBUG LIMPIO ===");
+    console.log("Hora actual:", new Date(ahora).toLocaleString());
+    console.log("Hora de guillotina:", new Date(tiempoFinalExamen).toLocaleString());
+    console.log("Segundos de vida:", segundos);
+
     if (segundos <= 0) {
       setTiempoRestante(0);
-      ejecutarGuillotina(true); // ¡Se acabó el tiempo!
+      ejecutarGuillotina(true);
     } else {
       setTiempoRestante(segundos);
     }
