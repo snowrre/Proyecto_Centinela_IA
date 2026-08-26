@@ -87,7 +87,10 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
     
     // Límite 1: Duración individual del alumno
     if (examen.duracion_minutos && sesion.hora_inicio_real) {
-      const inicioReal = new Date(sesion.hora_inicio_real).getTime();
+      const inicioString = sesion.hora_inicio_real.endsWith('Z') 
+                           ? sesion.hora_inicio_real 
+                           : `${sesion.hora_inicio_real}Z`;
+      const inicioReal = new Date(inicioString).getTime();
       const finIndividual = inicioReal + (examen.duracion_minutos * 60 * 1000);
       limites.push(finIndividual);
       
@@ -97,7 +100,10 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
 
     // Límite 2: Fecha global de cierre configurada por el profesor
     if (examen.fecha_fin_global) {
-      const finGlobal = new Date(examen.fecha_fin_global).getTime();
+      const fechaString = examen.fecha_fin_global.endsWith('Z') 
+                          ? examen.fecha_fin_global 
+                          : `${examen.fecha_fin_global}Z`;
+      const finGlobal = new Date(fechaString).getTime();
       limites.push(finGlobal);
       
       console.log("Hora cierre Supabase:", new Date(finGlobal).toString());
