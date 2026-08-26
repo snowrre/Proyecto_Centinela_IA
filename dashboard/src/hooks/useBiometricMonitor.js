@@ -134,8 +134,8 @@ export function useBiometricMonitor() {
         hand: { enabled: false },
         object: { 
           enabled: true, 
-          // Subimos la confianza al 50%. Si la IA no está al menos la mitad de segura, no es un teléfono.
-          minConfidence: 0.50 
+          // Punto de equilibrio (32%): Detecta sin dudar, evitando falsos positivos de sombras
+          minConfidence: 0.32 
         }, 
         gesture: { enabled: false }
       });
@@ -210,55 +210,56 @@ export function useBiometricMonitor() {
           let activeViolation = null;
 
           // ========================================================
-          // LÓGICA HUMAN UNIFICADA (Calibración de Grado Empresarial)
+          // LÓGICA HUMAN UNIFICADA (Calibración de Precisión Total)
           // ========================================================
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
               
-              // 1. SENSOR DE CELULARES Y PANTALLAS (Preciso y sin falsos positivos)
-              if (result.object && result.object.length > 0) {
-                  const dispositivo = result.object.find(obj => 
-                      ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop'].includes(obj.label)
-                  );
+              // 0. PRIORIDAD ABSOLUTA: MÚLTIPLES PERSONAS
+              // Si hay más de 1 cara, sanción inmediata sin importar la postura o mirada.
+              if (result.face && result.face.length > 1) {
+                  currentPersonCount = result.face.length;
+                  activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
+              } 
+              else if (!result.face || result.face.length === 0) {
+                  currentPersonCount = 0;
+                  activeViolation = "ESTUDIANTE AUSENTE";
+              } 
+              else {
+                  currentPersonCount = 1;
+                  const rostro = result.face[0];
                   
-                  // Exigimos un 50% (0.50) de seguridad para evitar alucinaciones
-                  if (dispositivo && dispositivo.score > 0.50) {
-                      isPhoneDetected = true;
-                      activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
-                  }
-              }
+                  // Extraemos radianes con ejes separados
+                  yaw = rostro.rotation?.angle?.yaw || 0;
+                  pitch = rostro.rotation?.angle?.pitch || 0;
 
-              // 2. SENSORES DE ROSTRO Y MIRADA (Ejes separados y simétricos)
-              if (!activeViolation) {
-                  if (result.face && result.face.length > 1) {
-                      currentPersonCount = result.face.length;
-                      activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
-                  } 
-                  else if (!result.face || result.face.length === 0) {
-                      currentPersonCount = 0;
-                      activeViolation = "ESTUDIANTE AUSENTE";
-                  } 
-                  else {
-                      currentPersonCount = 1;
-                      const rostro = result.face[0];
-                      
-                      // Extraemos los radianes puros, respetando los signos negativos (sin Math.abs)
-                      yaw = rostro.rotation?.angle?.yaw || 0;
-                      pitch = rostro.rotation?.angle?.pitch || 0;
-
-                      // 0.55 radianes = ~31 grados. Evaluación individual por cada lado de la cara.
-                      if (yaw > 0.55) {
-                          activeViolation = "MIRADA DESVIADA (IZQUIERDA)";
-                      } else if (yaw < -0.55) {
-                          activeViolation = "MIRADA DESVIADA (DERECHA)";
-                      } else if (pitch > 0.50) {
-                          activeViolation = "MIRADA DESVIADA (ABAJO)";
-                      } else if (pitch < -0.50) {
-                          activeViolation = "MIRADA DESVIADA (ARRIBA)"; 
+                  // 1. SENSOR DE CELULARES Y DISPOSITIVOS (Punto de equilibrio: 0.32)
+                  // Detecta sin dudar, evitando falsos positivos de sombras
+                  let dispositivoDetectado = false;
+                  if (result.object && result.object.length > 0) {
+                      const dispositivo = result.object.find(obj => 
+                          ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop'].includes(obj.label)
+                      );
+                      if (dispositivo && dispositivo.score > 0.32) {
+                          dispositivoDetectado = true;
                       }
                   }
-              } else {
-                  currentPersonCount = result.face ? result.face.length : 0;
+
+                  // 2. EVALUACIÓN DE VIOLACIONES
+                  if (dispositivoDetectado) {
+                      isPhoneDetected = true;
+                      activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
+                  } 
+                  // 0.45 radianes (~25°) = Más ágil y sensible al giro de cabeza
+                  else if (yaw > 0.45) {
+                      activeViolation = "MIRADA DESVIADA (IZQUIERDA)";
+                  } else if (yaw < -0.45) {
+                      activeViolation = "MIRADA DESVIADA (DERECHA)";
+                  } else if (pitch > 0.45) {
+                      activeViolation = "MIRADA DESVIADA (ABAJO)";
+                  } else if (pitch < -0.45) {
+                      activeViolation = "MIRADA DESVIADA (ARRIBA)"; 
+                  }
               }
           }
 
