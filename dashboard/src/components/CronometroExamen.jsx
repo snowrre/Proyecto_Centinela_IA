@@ -5,6 +5,7 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
   const [tiempoRestante, setTiempoRestante] = useState(null); // en segundos
   const [sesion, setSesion] = useState(null);
   const [enviando, setEnviando] = useState(false);
+  const [mostrarModalGuillotina, setMostrarModalGuillotina] = useState(false);
 
   // 1. Cargar configuración del examen y sesión del alumno al entrar
   useEffect(() => {
@@ -138,26 +139,31 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
   const ejecutarGuillotina = async (esForzoso = false) => {
     if (enviando) return;
     setEnviando(true);
+    
+    // 1. Levantamos el modal bonito que bloquea la pantalla
+    setMostrarModalGuillotina(true);
 
     try {
+      // 2. Le decimos a Supabase que fue un envío forzado por tiempo
       if (esForzoso && sesion) {
-        // Registramos en Supabase que el examen se cerró por tiempo
         await supabase
           .from('exam_sessions')
           .update({ envio_forzado: true })
           .eq('id', sesion.id);
       }
 
-      if (esForzoso) {
-        alert("⏱️ ¡El tiempo ha terminado! Tu examen se enviará automáticamente.");
-        if (onTimeUp) {
-            onTimeUp();
-        } else {
-            window.location.href = "/";
-        }
+      // 3. EL TÚNEL AL PROFESOR: 
+      if (typeof onTimeUp === 'function') {
+         await onTimeUp(); 
       }
+
+      // 4. Le damos 3 segundos al alumno para que vea el mensaje bonito, y lo sacamos.
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 3000);
+
     } catch (error) {
-      console.error("Error al ejecutar el auto-envío:", error);
+      console.error("Error en el túnel de envío:", error);
     }
   };
 
@@ -187,6 +193,36 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
             : 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-100 dark:border-blue-800'
         }`}>
           ⏳ Tiempo: {formatearReloj(tiempoRestante)}
+        </div>
+      )}
+
+      {/* MODAL DE AUTO-ENVÍO (Reemplaza al alert) */}
+      {mostrarModalGuillotina && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm transition-opacity">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 text-center transform scale-100">
+            
+            {/* Icono de Reloj animado */}
+            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-6">
+              <svg className="h-8 w-8 text-red-600 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              ¡El tiempo se ha agotado!
+            </h3>
+            <p className="text-gray-500 mb-6 text-sm">
+              Tu examen ha sido bloqueado y tus respuestas seleccionadas se están enviando automáticamente al profesor...
+            </p>
+            
+            {/* Spinner de carga */}
+            <div className="flex justify-center">
+              <svg className="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+          </div>
         </div>
       )}
     </div>
