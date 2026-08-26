@@ -31,7 +31,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Eye, RotateCcw, ShieldCheck, Loader2, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Eye, RotateCcw, ShieldCheck, Loader2, RefreshCw, AlertTriangle, CheckCircle2, Camera } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
