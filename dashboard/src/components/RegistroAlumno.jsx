@@ -364,7 +364,7 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
         setFase('exito');
 
         // Crear cuenta en Supabase
-        await crearCuentaEnSupabase();
+        await crearCuentaEnSupabase(selfieFile);
       } else {
         setMensaje(data.mensaje || 'Los rostros no coinciden. Intenta de nuevo.');
         setFase('error');
@@ -375,15 +375,36 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
     }
   };
 
-  const crearCuentaEnSupabase = async () => {
+  const crearCuentaEnSupabase = async (selfieFile) => {
     try {
-      // El alumno ya existe en la BD desde el Paso 1 (FormularioDatos).
-      // Solo actualizamos su fila marcando que completó el KYC con AWS Rekognition.
+      // 1. Subir foto maestra al bucket
+      const nombreArchivo = `${datosFormulario.correo}-${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase
+        .storage
+        .from('fotos_registro')
+        .upload(nombreArchivo, selfieFile, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase
+        .storage
+        .from('fotos_registro')
+        .getPublicUrl(nombreArchivo);
+
+      const urlFotoMaestra = publicUrlData.publicUrl;
+
+      // 2. Actualizar BD con kyc y biometria lista
       const { error } = await supabase
         .from('alumnos')
         .update({
-          kyc_completado:   true,
-          updated_at:       new Date().toISOString(),
+          kyc_completado: true,
+          biometria_registrada: true,
+          estado_biometria: 'Registrado',
+          foto_registro: urlFotoMaestra,
+          updated_at: new Date().toISOString(),
         })
         .eq('matricula', datosFormulario.matricula);
 
@@ -391,7 +412,7 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
       setTimeout(() => onExito?.(datosFormulario), 2500);
     } catch (err) {
       console.error('[RegistroAlumno] Error actualizando cuenta:', err);
-      setMensaje('Error al guardar la cuenta. Contacta al administrador.');
+      setMensaje('Error al guardar la cuenta y foto. Contacta al administrador.');
       setFase('error');
     }
   };

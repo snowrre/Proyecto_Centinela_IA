@@ -83,14 +83,13 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
   const fatalErrorCountRef = useRef(0);   // FAIL-CLOSED: contador de crashes de la IA
 
   const [uiPhase, setUiPhase]       = useState('loading_models');
-  // 'loading_models' | 'starting_camera' | 'challenge' | 'success' | 'error'
+  // 'loading_models' | 'starting_camera' | 'challenge' | 'verifying_aws' | 'success' | 'error'
   const [errorMsg, setErrorMsg]     = useState('');
   const [loadingStep, setLoadingStep] = useState(0);
 
   // ── Huella biométrica de referencia descargada de Supabase ─────────────────
   // Ref (no state) para acceso síncrono dentro del RAF loop sin stale-closure.
-  const huellaGuardadaRef = useRef(null);
-  const UMBRAL_SIMILITUD  = 0.55; // >= 0.55 → mismo alumno, < 0.55 → impostor
+  const fotoMaestraUrlRef = useRef(null);
 
   // ── BOOTSTRAP: Cargar modelos → cámara → iniciar reto ──────────────────────
   useEffect(() => {
@@ -109,26 +108,23 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
       }
       setLoadingStep(3);
 
-      // ── FILTRO DE IDENTIDAD: Descargar huella de referencia de Supabase ──────
-      // Si el alumno tiene biometria_registrada=true, comparamos su embedding
-      // guardado contra el rostro capturado en el reto. Si no coincide → bloqueo.
+      // ── FILTRO DE IDENTIDAD: Descargar foto maestra de Supabase ──────
       if (studentInfo?.matricula) {
         try {
           const { data: alumnoRow } = await supabase
             .from('alumnos')
-            .select('huella_biometrica')
+            .select('foto_registro')
             .eq('matricula', studentInfo.matricula)
             .maybeSingle();
 
-          if (alumnoRow?.huella_biometrica) {
-            huellaGuardadaRef.current = alumnoRow.huella_biometrica;
-            console.log('[BiometricAuth] ✅ Huella de referencia descargada (' +
-              alumnoRow.huella_biometrica.length + ' dims).');
+          if (alumnoRow?.foto_registro) {
+            fotoMaestraUrlRef.current = alumnoRow.foto_registro;
+            console.log('[BiometricAuth] ✅ URL de foto maestra descargada.');
           } else {
-            console.warn('[BiometricAuth] ⚠️ Sin huella guardada — solo prueba de vida.');
+            console.warn('[BiometricAuth] ⚠️ Sin foto guardada — solo prueba de vida.');
           }
         } catch (err) {
-          console.warn('[BiometricAuth] No se pudo descargar la huella:', err);
+          console.warn('[BiometricAuth] No se pudo descargar la foto maestra:', err);
         }
       }
 
@@ -251,30 +247,8 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
         try {
           const result = await detectFaceInFrame(video);
 
-          // 🔍 DIAGNÓSTICO #2 — ELIMINAR antes del despliegue final
-          console.log('2. ¿Supabase me dio mi huella?:',
-            huellaGuardadaRef.current
-              ? `Sí ✅ (${huellaGuardadaRef.current.length} dims)`
-              : 'NO, está vacía ❌');
-
           // ✅ Detección exitosa — resetear contador de errores fatales
           fatalErrorCountRef.current = 0;
-
-          // 🔍 DIAGNÓSTICO #3 y #4 — ELIMINAR antes del despliegue final
-          if (result?.face && result.face.length > 0) {
-            const rostroActual = result.face[0];
-            console.log("3. Estructura de Rotación:", rostroActual.rotation);
-            
-            if (rostroActual.embedding && huellaGuardadaRef.current) {
-              const h = window.__HUMAN_INSTANCE__;
-              try {
-                const similitud = h.match.similarity(rostroActual.embedding, huellaGuardadaRef.current);
-                console.log("4. Porcentaje de Similitud de Identidad:", similitud);
-              } catch (e) {
-                console.log("4. Error calculando similitud:", e.message);
-              }
-            }
-          }
 
           if (result && !successRef.current) {
             // ── Pintar la malla facial sobre el canvas transparente ────────────
@@ -294,32 +268,46 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
             analyzeFrame(result, async (embedding) => {
               if (successRef.current) return;
 
-              // 🔒 FILTRO DE IDENTIDAD ("Filtro Papá")
-              // Si hay huella guardada, comparamos el embedding actual contra ella.
-              // Si no coincide → Fail-Closed. NUNCA se llama onSuccess().
-              if (huellaGuardadaRef.current && embedding) {
-                const h = window.__HUMAN_INSTANCE__;
-                let similitud = 0;
-                try {
-                  similitud = h.match.similarity(embedding, huellaGuardadaRef.current);
-                  console.log(`[BiometricAuth] 🧠 Similitud: ${(similitud * 100).toFixed(1)}% (umbral: ${UMBRAL_SIMILITUD * 100}%)`);
-                } catch (matchErr) {
-                  console.error('[BiometricAuth] Error en match.similarity:', matchErr);
-                  similitud = 0; // Fail-Closed si la comparación falla
-                }
+              if (fotoMaestraUrlRef.current) {
+                setUiPhase('verifying_aws');
+                
+                // Capturamos el frame actual para enviarlo a AWS
+                const canvasTemp = document.createElement('canvas');
+                canvasTemp.width = videoRef.current.videoWidth;
+                canvasTemp.height = videoRef.current.videoHeight;
+                const ctxTemp = canvasTemp.getContext('2d');
+                ctxTemp.drawImage(videoRef.current, 0, 0);
 
-                if (similitud < UMBRAL_SIMILITUD) {
-                  // ⛔ IMPOSTOR DETECTADO — bloquear completamente
-                  successRef.current = true;
-                  stopRafLoop();
-                  setErrorMsg(
-                    `⚠️ Identidad no verificada (similitud: ${(similitud * 100).toFixed(0)}%). ` +
-                    `El rostro detectado no coincide con el alumno registrado. ` +
-                    `Contacta a tu docente si crees que esto es un error.`
-                  );
+                const blob = await new Promise(resolve => canvasTemp.toBlob(resolve, 'image/jpeg'));
+                const formData = new FormData();
+                formData.append('foto_actual', blob, 'actual.jpg');
+                formData.append('foto_registro_url', fotoMaestraUrlRef.current);
+
+                try {
+                  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+                  const response = await fetch(`${apiUrl}/api/verificar_rostro_examen`, {
+                    method: 'POST',
+                    body: formData,
+                  });
+                  const data = await response.json();
+
+                  if (!response.ok || !data.match) {
+                    setErrorMsg(
+                      `⚠️ Identidad no verificada. ` +
+                      `El rostro detectado no coincide con el alumno registrado en AWS Rekognition. ` +
+                      `Contacta a tu docente si crees que esto es un error.`
+                    );
+                    setUiPhase('error');
+                    onError?.('IDENTITY_MISMATCH');
+                    return; // ← NUNCA se llama onSuccess()
+                  }
+                  
+                  console.log(`[BiometricAuth] 🧠 AWS Confirmado. Similitud: ${data.similitud}%`);
+                } catch (err) {
+                  console.error('[BiometricAuth] Error validando con AWS:', err);
+                  setErrorMsg('Error de conexión con el motor biométrico. Intenta de nuevo.');
                   setUiPhase('error');
-                  onError?.('IDENTITY_MISMATCH');
-                  return; // ← NUNCA se llama onSuccess()
+                  return;
                 }
               }
 
@@ -538,13 +526,15 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
                   <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />
                   <div className="text-center">
                     <p className="text-white font-bold text-sm">
-                      {uiPhase === 'loading_models' ? 'Cargando motor de IA...' : 'Iniciando cámara...'}
+                      {uiPhase === 'loading_models' ? 'Cargando motor de IA...' : 
+                       uiPhase === 'starting_camera' ? 'Iniciando cámara...' : 'Verificando identidad con AWS...'}
                     </p>
                     <p className="text-slate-400 text-xs mt-1">
                       {uiPhase === 'loading_models'
                         ? 'Iniciando motor WebAssembly (WASM)...'
-                        : 'Solicitando acceso a la cámara...'
-                      }
+                        : uiPhase === 'starting_camera'
+                        ? 'Solicitando acceso a la cámara...'
+                        : 'AWS Rekognition analizando tu rostro...'}
                     </p>
                   </div>
                   {/* Barra de progreso de carga */}
@@ -555,6 +545,20 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
                       animate={{ width: `${loadingStep * 25}%` }}
                       transition={{ duration: 0.5 }}
                     />
+                  </div>
+                </motion.div>
+              )}
+              {uiPhase === 'verifying_aws' && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4"
+                >
+                  <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />
+                  <div className="text-center">
+                    <p className="text-white font-bold text-sm">Validando identidad...</p>
+                    <p className="text-slate-400 text-xs mt-1">Enviando captura a AWS Rekognition</p>
                   </div>
                 </motion.div>
               )}

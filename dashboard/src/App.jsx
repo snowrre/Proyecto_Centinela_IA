@@ -192,18 +192,17 @@ export default function App() {
         studentName={studentData?.nombre_completo || studentData?.matricula}
         onAccept={() => {
           // Términos aceptados ✔
-          const kycListo = studentData?.kyc_completado === true;
-          const biometriaLista = studentData?.biometria_registrada === true;
-
-          if (kycListo && biometriaLista) {
-            // Ya tiene todo: va directo al examen con cámara en vivo
+          if (studentData?.kyc_completado) {
+            // Ya tiene foto maestra guardada: va directo a prueba de vida
             setView('biometric_auth');
-          } else if (kycListo && !biometriaLista) {
-            // Pasó el INE pero le falta enrolar su rostro
-            setView('enrolamiento_facial');
           } else {
-            // Primera vez: empieza desde validar el INE
-            setView('validacion_ine');
+            // No tiene KYC, debe registrarse primero
+            import('react-hot-toast').then(({ default: toast }) =>
+              toast.error('Debes completar el proceso de registro primero.')
+            );
+            setStudentData(null);
+            localStorage.removeItem('centinela_session');
+            setView('landing');
           }
         }}
         onReject={() => {
@@ -211,59 +210,6 @@ export default function App() {
           setStudentData(null);
           localStorage.removeItem('centinela_session');
           setView('landing');
-        }}
-      />
-    );
-  }
-
-  // ── 🛂 PASO 1: Validación OCR de INE ──────────────────────────────────────
-  if (view === 'validacion_ine') {
-    return (
-      <ValidacionINE
-        idAlumno={studentData?.id}
-        darkMode={darkMode}
-        onSuccess={({ nombre, archivoIne }) => {
-          // INE leída ✓ — guardamos el File y avanzamos a la comparación facial
-          setFotoIneFile(archivoIne);
-          setView('verificacion_rostro_aws');
-        }}
-      />
-    );
-  }
-
-  // ── 🤖 PASO 2: Face Match con AWS Rekognition ─────────────────────────────
-  if (view === 'verificacion_rostro_aws') {
-    return (
-      <VerificacionRostroAWS
-        fotoIne={fotoIneFile}
-        darkMode={darkMode}
-        onExito={() => {
-          // Face match exitoso ✓ — ahora enrolamos la huella biométrica
-          setFotoIneFile(null); // Liberar memoria
-          setView('enrolamiento_facial');
-        }}
-      />
-    );
-  }
-
-  // ── 🔴 SEMÁFORO: Enrolamiento Facial (primer uso) ─────────────────────────
-  // Se muestra SOLO si el alumno tiene biometria_registrada === false.
-  // Una vez que guarda su huella en Supabase, actualiza el estado local
-  // y lo redirige automáticamente a la prueba de vida biométrica.
-  if (view === 'enrolamiento_facial') {
-    return (
-      <EnrolamientoFacial
-        correoInstitucional={studentData?.correo}
-        matricula={studentData?.matricula}
-        darkMode={darkMode}
-        onSuccess={() => {
-          // Huella guardada ✓ — actualizamos estado local para que el semáforo
-          // se ponga en verde y mandamos al flujo normal de prueba de vida.
-          setStudentData(prev => ({ ...prev, biometria_registrada: true }));
-          setView('biometric_auth');
-        }}
-        onError={(motivo) => {
-          console.error('[App] Error en EnrolamientoFacial:', motivo);
         }}
       />
     );
