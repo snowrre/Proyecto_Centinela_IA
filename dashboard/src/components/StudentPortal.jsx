@@ -586,6 +586,11 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
   // ─────────────────────────────────────────────────────────────────
 
   const handleSubmitExam = async (esForzoso = false) => {
+    // ── SWITCH DE APAGADO (KILL SWITCH) DE LA IA ZOMBIE ──
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    if (engineRef.current) engineRef.current.stop();
+    stopMonitoring();
+
     if (loading) return;
     setLoading(true);
       
