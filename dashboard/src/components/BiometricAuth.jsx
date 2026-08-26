@@ -391,6 +391,17 @@ export default function BiometricAuth({ onSuccess, onError, darkMode, studentInf
   };
 
   const finalizarAccesoExitoso = async (embedding) => {
+    // 1. Reseteamos el reloj en la base de datos a ESTE preciso instante (AWS/Liveness aprobado)
+    const horaExactaUTC = new Date().toISOString();
+    
+    if (studentInfo) {
+      await supabase
+        .from('exam_sessions')
+        .update({ hora_inicio_real: horaExactaUTC })
+        .eq('matricula_alumno', studentInfo.matricula)
+        .eq('pin_sala', studentInfo.roomCode || studentInfo.pin);
+    }
+
     // Ya no guardamos la huella matemática local en Supabase,
     // porque AWS Rekognition se encarga de la validación usando la foto oficial.
 
