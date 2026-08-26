@@ -151,9 +151,9 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
           .eq('id', sesion.id);
       }
 
-      // 2. EL TÚNEL (Aquí pondremos tu función cuando me la mandes)
+      // 3. EL TÚNEL: Mandamos las respuestas
       if (typeof onTimeUp === 'function') {
-         await onTimeUp(); 
+         await onTimeUp(true); 
       }
 
       // ¡OJO AQUÍ! Ya NO hay redirección automática.

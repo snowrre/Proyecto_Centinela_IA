@@ -584,9 +584,9 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
   };
   // ─────────────────────────────────────────────────────────────────
 
-  const handleSubmitExam = async () => {
-    try {
-      setLoading(true);
+  const handleSubmitExam = async (esForzoso = false) => {
+    if (loading) return;
+    setLoading(true);
       
       const resolvedPin = formData.pin || studentData?.pin || studentData?.roomCode || '';
       
@@ -671,8 +671,9 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
           localStorage.removeItem(`answers_${pin}_${matricula}`);
         }
       } catch { /* ignorar */ }
-
-      setIsSubmitted(true);
+      if (!esForzoso) {
+        setIsSubmitted(true);
+      }
     } catch (err) {
       console.error("Error al enviar examen:", err);
       toast.error("Hubo un error al enviar tu examen. Inténtalo de nuevo.");
