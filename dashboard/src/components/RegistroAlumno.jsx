@@ -381,7 +381,7 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
       const nombreArchivo = `${datosFormulario.correo}-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase
         .storage
-        .from('fotos_registro')
+        .from('Fotos_Registro')
         .upload(nombreArchivo, selfieFile, {
           cacheControl: '3600',
           upsert: false
@@ -391,7 +391,7 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
 
       const { data: publicUrlData } = supabase
         .storage
-        .from('fotos_registro')
+        .from('Fotos_Registro')
         .getPublicUrl(nombreArchivo);
 
       const urlFotoMaestra = publicUrlData.publicUrl;
