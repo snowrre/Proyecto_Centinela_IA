@@ -62,9 +62,7 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
         await worker.terminate();
       }
 
-      console.log("🔍 [DEBUG 0] TEXTO CRUDO DEL OCR:\n", fullText);
-
-      console.log("🔍 [DEBUG 0] TEXTO CRUDO DEL OCR:\n", fullText);
+      // console.log("🔍 [DEBUG 0] TEXTO CRUDO DEL OCR:\\n", fullText);
 
       try {
         setOcrProgress(50);
@@ -118,9 +116,9 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
 
   // Motor de emergencia (Regex) — v4 ultra-permisivo (sin dependencia de espacios)
   const parseQuestionsFromText = (text) => {
-    console.log("================ TEXTO CRUDO DEL PDF ================");
-    console.log(text);
-    console.log("====================================================");
+    // console.log("================ TEXTO CRUDO DEL PDF ================");
+    // console.log(text);
+    // console.log("====================================================");
 
     const qs = [];
     const normalizedText = text.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').replace(/[•◦▪●]/g, '○');
