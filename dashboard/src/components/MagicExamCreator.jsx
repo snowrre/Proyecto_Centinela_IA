@@ -240,8 +240,8 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
         id_profesor: idProfesorActual, // ✅ Enlace maestro establecido
         id_universidad: idUniversidadActual, // ✅ Aislamiento Cross-Tenant establecido
         duracion_minutos: duracionMinutos ? parseInt(duracionMinutos) : null,
-        fecha_inicio_global: fechaInicioGlobal || null,
-        fecha_fin_global: fechaFinGlobal || null
+        fecha_inicio_global: fechaInicioGlobal ? new Date(fechaInicioGlobal).toISOString() : null,
+        fecha_fin_global: fechaFinGlobal ? new Date(fechaFinGlobal).toISOString() : null
       };
 
       const { data: examData, error: examError } = await supabase
@@ -339,8 +339,8 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
         id_profesor: idProfesorActual, // ✅ Enlace maestro establecido
         id_universidad: idUniversidadActual, // ✅ Aislamiento Cross-Tenant establecido
         duracion_minutos: duracionMinutos ? parseInt(duracionMinutos) : null,
-        fecha_inicio_global: fechaInicioGlobal || null,
-        fecha_fin_global: fechaFinGlobal || null
+        fecha_inicio_global: fechaInicioGlobal ? new Date(fechaInicioGlobal).toISOString() : null,
+        fecha_fin_global: fechaFinGlobal ? new Date(fechaFinGlobal).toISOString() : null
       };
 
       const { error } = await supabase
