@@ -193,6 +193,28 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
       setErrorMessage('El examen está vacío.');
       return;
     }
+
+    // Validación Matemática de Tiempos
+    if (duracionMinutos && fechaInicioGlobal && fechaFinGlobal) {
+      const inicio = new Date(fechaInicioGlobal);
+      const fin = new Date(fechaFinGlobal);
+      const diferenciaMinutos = (fin - inicio) / (1000 * 60);
+
+      if (diferenciaMinutos < parseInt(duracionMinutos)) {
+        setErrorMessage(`Error de lógica: Pusiste que el examen dura ${duracionMinutos} minutos, pero la ventana de apertura y cierre es de solo ${Math.round(diferenciaMinutos)} minutos.`);
+        return;
+      }
+    }
+    
+    if (fechaInicioGlobal && fechaFinGlobal) {
+      const inicio = new Date(fechaInicioGlobal);
+      const fin = new Date(fechaFinGlobal);
+      if (fin <= inicio) {
+        setErrorMessage('Error: La fecha de cierre debe ser posterior a la fecha de apertura.');
+        return;
+      }
+    }
+
     setLoading(true);
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     
@@ -272,6 +294,28 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
       setErrorMessage('Por favor, ingresa un enlace válido.');
       return;
     }
+
+    // Validación Matemática de Tiempos
+    if (duracionMinutos && fechaInicioGlobal && fechaFinGlobal) {
+      const inicio = new Date(fechaInicioGlobal);
+      const fin = new Date(fechaFinGlobal);
+      const diferenciaMinutos = (fin - inicio) / (1000 * 60);
+
+      if (diferenciaMinutos < parseInt(duracionMinutos)) {
+        setErrorMessage(`Error de lógica: Pusiste que el examen dura ${duracionMinutos} minutos, pero la ventana de apertura y cierre es de solo ${Math.round(diferenciaMinutos)} minutos.`);
+        return;
+      }
+    }
+    
+    if (fechaInicioGlobal && fechaFinGlobal) {
+      const inicio = new Date(fechaInicioGlobal);
+      const fin = new Date(fechaFinGlobal);
+      if (fin <= inicio) {
+        setErrorMessage('Error: La fecha de cierre debe ser posterior a la fecha de apertura.');
+        return;
+      }
+    }
+
     setLoading(true);
     setErrorMessage('');
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
@@ -435,7 +479,13 @@ export default function MagicExamCreator({ onComplete, darkMode }) {
                     type="datetime-local" 
                     className="w-full border border-gray-300 dark:border-white/10 dark:bg-black dark:text-white rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                     value={fechaInicioGlobal}
-                    onChange={(e) => setFechaInicioGlobal(e.target.value)}
+                    onChange={(e) => {
+                      const nuevaFecha = e.target.value;
+                      setFechaInicioGlobal(nuevaFecha);
+                      if (!fechaFinGlobal) {
+                        setFechaFinGlobal(nuevaFecha);
+                      }
+                    }}
                   />
                 </div>
 
