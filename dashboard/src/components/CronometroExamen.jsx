@@ -215,7 +215,12 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
             {/* BOTÓN DE SALIDA SEGURA */}
             <button 
               onClick={() => {
-                 window.location.href = "/"; 
+                 // 1. Limpiamos cualquier rastro de la sesión del examen localmente
+                 localStorage.clear();
+                 sessionStorage.clear();
+                 
+                 // 2. Lo mandamos a la ruta específica de login del alumno
+                 window.location.href = "/acceso-alumnos"; 
               }}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-sm"
             >
