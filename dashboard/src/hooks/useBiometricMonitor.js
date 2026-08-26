@@ -134,8 +134,8 @@ export function useBiometricMonitor() {
         hand: { enabled: false },
         object: { 
           enabled: true, 
-          // Punto de equilibrio (32%): Detecta sin dudar, evitando falsos positivos de sombras
-          minConfidence: 0.32 
+          // Modo Ultra Estricto (20%): Prioridad máxima, salta ante la mínima sospecha
+          minConfidence: 0.20 
         }, 
         gesture: { enabled: false }
       });
@@ -210,57 +210,57 @@ export function useBiometricMonitor() {
           let activeViolation = null;
 
           // ========================================================
-          // LÓGICA HUMAN UNIFICADA (Calibración de Precisión Total)
+          // LÓGICA HUMAN UNIFICADA (Modo Ultra Estricto)
           // ========================================================
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
               
-              // 0. PRIORIDAD ABSOLUTA: MÚLTIPLES PERSONAS
-              // Si hay más de 1 cara, sanción inmediata sin importar la postura o mirada.
-              if (result.face && result.face.length > 1) {
-                  currentPersonCount = result.face.length;
-                  activeViolation = "MÚLTIPLES PERSONAS DETECTADAS";
-              } 
-              else if (!result.face || result.face.length === 0) {
-                  currentPersonCount = 0;
-                  activeViolation = "ESTUDIANTE AUSENTE";
-              } 
-              else {
-                  currentPersonCount = 1;
-                  const rostro = result.face[0];
+              let activeViolationTemporal = null;
+              currentPersonCount = result.face ? result.face.length : 0;
+              isPhoneDetected = false;
+
+              // 1. PRIORIDAD #1: TELÉFONOS (Implacable a 0.20)
+              // Se ejecuta SIEMPRE, incluso si la cara está tapada
+              if (result.object && result.object.length > 0) {
+                  // Agregamos 'tablet' por si el brillo lo confunde
+                  const dispositivo = result.object.find(obj => 
+                      ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop', 'tablet'].includes(obj.label)
+                  );
                   
-                  // Extraemos radianes con ejes separados
-                  yaw = rostro.rotation?.angle?.yaw || 0;
-                  pitch = rostro.rotation?.angle?.pitch || 0;
-
-                  // 1. SENSOR DE CELULARES Y DISPOSITIVOS (Punto de equilibrio: 0.32)
-                  // Detecta sin dudar, evitando falsos positivos de sombras
-                  let dispositivoDetectado = false;
-                  if (result.object && result.object.length > 0) {
-                      const dispositivo = result.object.find(obj => 
-                          ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop'].includes(obj.label)
-                      );
-                      if (dispositivo && dispositivo.score > 0.32) {
-                          dispositivoDetectado = true;
-                      }
-                  }
-
-                  // 2. EVALUACIÓN DE VIOLACIONES
-                  if (dispositivoDetectado) {
+                  if (dispositivo && dispositivo.score > 0.20) {
                       isPhoneDetected = true;
-                      activeViolation = "USO DE DISPOSITIVO NO AUTORIZADO";
-                  } 
-                  // 0.45 radianes (~25°) = Más ágil y sensible al giro de cabeza
-                  else if (yaw > 0.45) {
-                      activeViolation = "MIRADA DESVIADA (IZQUIERDA)";
-                  } else if (yaw < -0.45) {
-                      activeViolation = "MIRADA DESVIADA (DERECHA)";
-                  } else if (pitch > 0.45) {
-                      activeViolation = "MIRADA DESVIADA (ABAJO)";
-                  } else if (pitch < -0.45) {
-                      activeViolation = "MIRADA DESVIADA (ARRIBA)"; 
+                      activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
                   }
               }
+
+              // 2. PRIORIDAD #2: ROSTROS Y MIRADA (Si no hay teléfono)
+              if (!activeViolationTemporal) {
+                  if (currentPersonCount > 1) {
+                      activeViolationTemporal = "MÚLTIPLES PERSONAS DETECTADAS";
+                  } 
+                  else if (currentPersonCount === 0) {
+                      activeViolationTemporal = "ESTUDIANTE AUSENTE";
+                  } 
+                  else {
+                      // 3. SENSOR DE MIRADA (Ultra sensible a 0.35 radianes / ~20 grados)
+                      const rostro = result.face[0];
+                      yaw = rostro.rotation?.angle?.yaw || 0;
+                      pitch = rostro.rotation?.angle?.pitch || 0;
+
+                      if (yaw > 0.35) {
+                          activeViolationTemporal = "MIRADA DESVIADA (IZQUIERDA)";
+                      } else if (yaw < -0.35) {
+                          activeViolationTemporal = "MIRADA DESVIADA (DERECHA)";
+                      } else if (pitch > 0.35) {
+                          activeViolationTemporal = "MIRADA DESVIADA (ABAJO)";
+                      } else if (pitch < -0.35) {
+                          activeViolationTemporal = "MIRADA DESVIADA (ARRIBA)"; 
+                      }
+                  }
+              }
+
+              // Asignamos la violación final para disparar tu alerta
+              activeViolation = activeViolationTemporal;
           }
 
           const currentTimeMs = performance.now();
