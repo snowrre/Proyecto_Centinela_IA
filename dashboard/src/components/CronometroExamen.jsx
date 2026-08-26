@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase'; 
 
-export default function CronometroExamen({ pin, matricula, onTimeUp }) {
+export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAprobada }) {
   const [tiempoRestante, setTiempoRestante] = useState(null); // en segundos
   const [sesion, setSesion] = useState(null);
   const [enviando, setEnviando] = useState(false);
 
   // 1. Cargar configuración del examen y sesión del alumno al entrar
   useEffect(() => {
+    // 🔥 EL GATILLO: Si la biometría no ha terminado, no arranques el reloj ni guardes la hora.
+    if (!biometriaAprobada) return;
+
     async function inicializarReloj() {
       try {
         // A) Traer los límites del examen (duración y fecha fin global)
@@ -71,7 +74,7 @@ export default function CronometroExamen({ pin, matricula, onTimeUp }) {
     if (pin && matricula) {
       inicializarReloj();
     }
-  }, [pin, matricula]);
+  }, [pin, matricula, biometriaAprobada]);
 
   // 2. Función matemática para calcular qué tiempo se acaba primero
   const calcularRestante = (examen, sesion) => {

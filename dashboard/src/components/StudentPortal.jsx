@@ -1049,6 +1049,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                       pin={formData.pin || studentData?.pin || studentData?.roomCode || ''} 
                       matricula={formData.matricula || studentData?.matricula || ''} 
                       onTimeUp={handleSubmitExam} 
+                      biometriaAprobada={step === 'active'}
                     />
                     
                     {examData?.externalLink ? (

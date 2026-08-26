@@ -158,7 +158,7 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent, onGoToReg
           // 🔒 NUEVO CANDADO EN LA PUERTA PRINCIPAL 🔒
           // Revisar de quién es el examen antes de dejarla registrar su sesión en la base de datos
           const { data: examData, error: examError } = await supabase.from('exams')
-            .select('id_universidad')
+            .select('id_universidad, fecha_inicio_global')
             .eq('pin_sala', roomCode)
             .maybeSingle();
 
@@ -168,6 +168,14 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent, onGoToReg
 
           if (examData.id_universidad !== alumnoData.id_universidad) {
             throw new Error('Acceso denegado: Este examen pertenece a otra institución.');
+          }
+
+          if (examData.fecha_inicio_global) {
+            const ahora = new Date();
+            const fechaInicio = new Date(examData.fecha_inicio_global);
+            if (ahora < fechaInicio) {
+              throw new Error(`Este examen aún no está habilitado. La evaluación inicia a las: ${fechaInicio.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
+            }
           }
 
           // Registrar sesión en exam_sessions (Ahora el proceso es 100% seguro)
