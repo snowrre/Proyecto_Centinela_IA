@@ -288,7 +288,8 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
               text: q.texto_pregunta,
               options: (q.options || []).map(o => ({
                 id: o.id,
-                text: o.texto_opcion
+                text: o.texto_opcion,
+                es_correcta: o.es_correcta
               }))
             }))
           });
