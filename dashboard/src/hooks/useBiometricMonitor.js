@@ -31,6 +31,7 @@ export function useBiometricMonitor() {
   const isRunningRef     = useRef(false);
   const engineReadyRef   = useRef(false);
   const animationFrameId = useRef(null);
+  const sniperIntervalId = useRef(null);
 
   // Variables del Motor de Reglas
   const infractionStartMsRef = useRef(0);
@@ -131,13 +132,8 @@ export function useBiometricMonitor() {
           description: { enabled: false } // APAGADO: Ahorramos memoria, ya validamos identidad
         },
         body: { enabled: false },
-        hand: { 
-          enabled: true, // ¡ENCENDEMOS EL MÓDULO DE MANOS!
-          maxDetected: 2 
-        },
-        object: { 
-          enabled: false // Apagamos el detector de objetos que fallaba con el celular cercano
-        }, 
+        hand: { enabled: false }, // APAGADO
+        object: { enabled: false }, // APAGADO
         gesture: { enabled: false }
       });
 
@@ -211,7 +207,7 @@ export function useBiometricMonitor() {
           let activeViolation = null;
 
           // ========================================================
-          // LÓGICA DE PROCTORING AVANZADO (Manos + Rostro)
+          // LÓGICA DE ROSTROS Y CABEZA
           // ========================================================
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
@@ -220,38 +216,14 @@ export function useBiometricMonitor() {
               currentPersonCount = result.face ? result.face.length : 0;
               isPhoneDetected = false;
 
-              // 1. DETECCIÓN DE MANOS CERCA DE LA CARA / TRAMPA
-              let manoLevantadaCercaDelRostro = false;
-              if (result.hand && result.hand.length > 0) {
-                  // Revisamos la posición vertical de las manos detectadas (eje Y)
-                  const manoAlta = result.hand.find(h => {
-                      const boxY = h.box ? h.box[1] : 0; 
-                      return boxY < 380; // Si la mano está en la mitad superior/media de la cámara
-                  });
-                  if (manoAlta) {
-                      manoLevantadaCercaDelRostro = true;
-                  }
-              }
-
-              // 2. JERARQUÍA DE SEGURIDAD
               if (currentPersonCount > 1) {
                   activeViolationTemporal = "MÚLTIPLES PERSONAS DETECTADAS";
               } 
-              // SI EL ROSTRO DESAPARECE Y HAY UNA MANO LEVANTADA -> TRAMPA CON CELULAR (Oclusión)
-              else if (currentPersonCount === 0 && manoLevantadaCercaDelRostro) {
-                  isPhoneDetected = true;
-                  activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
-              }
               else if (currentPersonCount === 0) {
                   activeViolationTemporal = "ESTUDIANTE AUSENTE";
               } 
-              // SI HAY ROSTRO PERO TIENE LA MANO LEVANTADA A LA ALTURA DE LA CARA
-              else if (manoLevantadaCercaDelRostro) {
-                  isPhoneDetected = true;
-                  activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
-              }
               else {
-                  // 3. SENSOR DE MIRADA (Estricto a 0.35 radianes / ~20 grados)
+                  // SENSOR DE MIRADA (Estricto a 0.35 radianes / ~20 grados)
                   const rostro = result.face[0];
                   yaw = rostro.rotation?.angle?.yaw || 0;
                   pitch = rostro.rotation?.angle?.pitch || 0;
@@ -353,6 +325,52 @@ export function useBiometricMonitor() {
     };
 
     predictWebcam();
+
+    // ========================================================
+    // EL FRANCOTIRADOR AWS (Temporizador de Detección de Celulares)
+    // ========================================================
+    if (!sniperIntervalId.current) {
+      console.log("--- Francotirador AWS Activado (Ciclo de 10 segundos) ---");
+      sniperIntervalId.current = setInterval(async () => {
+        // No disparamos si el alumno ya se salió o ya tiene una infracción
+        if (currentInfractionRef.current && currentInfractionRef.current !== "USO DE DISPOSITIVO NO AUTORIZADO") return;
+
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = videoElement.videoWidth;
+          canvas.height = videoElement.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+          canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const formData = new FormData();
+            formData.append('foto_actual', blob, 'sniper_shot.jpg');
+
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+            const response = await fetch(`${apiUrl}/api/detectar_objetos`, {
+              method: 'POST',
+              body: formData
+            });
+
+            if (!response.ok) throw new Error('Error en la llamada al backend AWS');
+            const data = await response.json();
+            
+            if (data.is_phone) {
+              console.log("¡AVISO ROJO: AWS Detectó un Celular!");
+              // Forzamos el estado de infracción. Al pasarlo a la ref, 
+              // el próximo tick de predictWebcam lo procesará y disparará la alerta
+              currentInfractionRef.current = "USO DE DISPOSITIVO NO AUTORIZADO";
+              if (infractionStartMsRef.current === 0) {
+                  infractionStartMsRef.current = performance.now() - 5000; // Forza inmediato
+              }
+            }
+          }, 'image/jpeg', 0.8);
+        } catch (error) {
+          // Fallos silenciosos
+        }
+      }, 10000);
+    }
   }, [ensureEngineReady, enviarTelemetria]);
 
   const stopMonitoring = useCallback(() => {
@@ -373,7 +391,14 @@ export function useBiometricMonitor() {
         } catch(e) {}
     }
     
-    // 2. Reiniciamos el candado
+    // 2. Apagar Francotirador AWS
+    if (sniperIntervalId.current) {
+        clearInterval(sniperIntervalId.current);
+        sniperIntervalId.current = null;
+        console.log("--- Francotirador AWS Desactivado ---");
+    }
+
+    // 3. Reiniciamos el candado
     window.isInitializingAI = false;
     
   }, []);
