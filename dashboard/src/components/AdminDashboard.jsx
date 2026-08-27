@@ -1407,13 +1407,12 @@ export default function AdminDashboard({ darkMode }) {
                     )}
                 </div>
             </div>
-        </div>
 
-        {/* Chat de Sala en vivo */}
-        <div className="mt-8">
-          <ChatDocente pin_sala={filterPin} darkMode={darkMode} />
+            {/* Chat de Sala en vivo */}
+            <div className="mt-8">
+              <ChatDocente pin_sala={filterPin} darkMode={darkMode} />
+            </div>
         </div>
-      </div>
       )}
 
 
