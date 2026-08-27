@@ -332,13 +332,15 @@ export function useBiometricMonitor() {
     predictWebcam();
 
     // ========================================================
-    // EL FRANCOTIRADOR AWS (Temporizador de Detección de Celulares)
+    // EL FRANCOTIRADOR AWS — MONITOR UNIVERSAL (Celular + Suplantación)
     // ========================================================
     if (!sniperIntervalId.current) {
-      console.log("--- Francotirador AWS Activado (Ciclo de 10 segundos) ---");
+      console.log("--- Monitor Universal AWS Activado (Ciclo de 10 segundos) ---");
       sniperIntervalId.current = setInterval(async () => {
-        // No disparamos si el alumno ya se salió o ya tiene una infracción
-        if (currentInfractionRef.current && currentInfractionRef.current !== "USO DE DISPOSITIVO NO AUTORIZADO") return;
+        // No disparamos si ya hay una infracción activa no relacionada a AWS
+        if (currentInfractionRef.current &&
+            currentInfractionRef.current !== "USO DE DISPOSITIVO NO AUTORIZADO" &&
+            currentInfractionRef.current !== "SUPLANTACIÓN DE IDENTIDAD") return;
 
         try {
           const canvas = document.createElement('canvas');
@@ -350,31 +352,33 @@ export function useBiometricMonitor() {
           canvas.toBlob(async (blob) => {
             if (!blob) return;
             const formData = new FormData();
-            formData.append('foto_actual', blob, 'sniper_shot.jpg');
+            formData.append('foto', blob, 'monitoreo_universal.jpg');
+            formData.append('matricula', estudianteId); // Matrícula del alumno en examen
 
             const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-            const response = await fetch(`${apiUrl}/api/detectar_objetos`, {
+            const response = await fetch(`${apiUrl}/api/monitoreo_continuo`, {
               method: 'POST',
               body: formData
             });
 
-            if (!response.ok) throw new Error('Error en la llamada al backend AWS');
+            if (!response.ok) throw new Error('Fallo en servidor de monitoreo');
             const data = await response.json();
-            
+
+            // A. Prioridad 1: Celular detectado
             if (data.is_phone) {
               console.log("¡AVISO ROJO: AWS Detectó un Celular!");
-              
-              // Ponemos un candado global
               window.awsCandadoCelular = true;
-              
-              // Lo mantenemos cerrado por 5 segundos para que Supabase alcance a guardar todo
-              setTimeout(() => {
-                  window.awsCandadoCelular = false;
-              }, 5000);
+              setTimeout(() => { window.awsCandadoCelular = false; }, 5000);
+            }
+            // B. Prioridad 2: Suplantación de identidad
+            else if (data.es_el_alumno === false && data.razon && data.razon.includes("SUPLANTACIÓN")) {
+              console.log(`¡ALERTA CRÍTICA: ${data.razon}`);
+              window.awsCandadoCelular = true;
+              setTimeout(() => { window.awsCandadoCelular = false; }, 5000);
             }
           }, 'image/jpeg', 0.8);
         } catch (error) {
-          // Fallos silenciosos
+          // Fallos silenciosos — la red del alumno no debe interrumpir su examen
         }
       }, 10000);
     }
