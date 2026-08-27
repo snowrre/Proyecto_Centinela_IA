@@ -371,15 +371,32 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
             method: 'POST',
             body: formDuplicado
           });
+
+          // 🚨 BLINDAJE ESTRICTO: si el servidor falla o manda un error, bloqueamos
+          if (!resDuplicado.ok) {
+            setMensaje('⛔ Error de seguridad: No se pudo validar la unicidad biométrica. Intenta de nuevo.');
+            setFase('error');
+            return;
+          }
+
           const dataDuplicado = await resDuplicado.json();
+
+          if (dataDuplicado.error) {
+            setMensaje('⛔ Error de seguridad biométrica. Intenta de nuevo.');
+            setFase('error');
+            return;
+          }
+
           if (dataDuplicado.duplicado) {
             setMensaje(`⛔ Registro bloqueado: ${dataDuplicado.mensaje}`);
             setFase('error');
             return;
           }
         } catch {
-          // Si el candado falla (red), continuamos para no bloquear al alumno legítimo
-          console.warn('[CandadoBiométrico] No se pudo verificar duplicado, continuando...');
+          // 🚨 BLINDAJE: Si hay error de red, bloqueamos (no dejamos pasar por defecto)
+          setMensaje('⛔ Sin conexión al servidor de seguridad. Verifica tu red e intenta de nuevo.');
+          setFase('error');
+          return;
         }
 
         setMensaje(`¡Identidad confirmada! Similitud: ${data.similitud.toFixed(1)}%`);
