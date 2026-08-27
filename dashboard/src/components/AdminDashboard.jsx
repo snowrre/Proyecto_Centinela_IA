@@ -905,7 +905,7 @@ export default function AdminDashboard({ darkMode }) {
               {/* Visualización de Cámara en Vivo */}
               <div className="relative aspect-video rounded-3xl overflow-hidden mb-6 bg-neutral-900 shadow-inner group-hover:shadow-2xl transition-all duration-500">
                 <img 
-                  src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/snapshots/${student.matricula}.jpg?t=${student.lastUpdate}`}
+                  src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/Capturas_monitoreo/live_${student.matricula}.jpg?t=${student.lastUpdate}`}
                   className="w-full h-full object-cover"
                   alt="Live feed"
                   onError={(e) => {
