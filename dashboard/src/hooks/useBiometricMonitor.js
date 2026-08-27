@@ -393,13 +393,13 @@ export function useBiometricMonitor() {
               const fileName = `live_${matriculaSegura}.jpg`;
               
               const { error: uploadError } = await supabase.storage
-                .from('capturas-monitoreo') 
+                .from('Capturas_monitoreo') 
                 .upload(fileName, blob, { upsert: true, contentType: 'image/jpeg' });
 
               if (!uploadError) {
                  // 1. Sacamos la URL pública
                  const { data: urlData } = supabase.storage
-                   .from('capturas-monitoreo')
+                   .from('Capturas_monitoreo')
                    .getPublicUrl(fileName);
                  
                  console.log("📷 URL generada:", urlData.publicUrl); // <- Detector 1
