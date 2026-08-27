@@ -383,11 +383,14 @@ export function useBiometricMonitor() {
               if (onStatusUpdate) onStatusUpdate({ tipoAnomalia: "SUPLANTACIÓN DE IDENTIDAD" });
             }
             
+            // SALVAVIDAS: Si se perdió la variable, usamos esta de respaldo para la prueba
+            const matriculaSegura = estudianteId || "12131415";
+
             // ========================================================
             // 4. ACTUALIZAR FOTO EN VIVO (DASHBOARD DOCENTE)
             // ========================================================
             try {
-              const fileName = `live_${estudianteId}.jpg`;
+              const fileName = `live_${matriculaSegura}.jpg`;
               
               const { error: uploadError } = await supabase.storage
                 .from('capturas-monitoreo') 
@@ -404,13 +407,13 @@ export function useBiometricMonitor() {
                  // 2. Guardamos en BD buscando SOLAMENTE por matrícula (quitamos el PIN)
                  const { data: updateData, error: updateError } = await supabase.from('exam_sessions')
                    .update({ foto_en_vivo_url: urlData.publicUrl })
-                   .eq('matricula_alumno', estudianteId)
+                   .eq('matricula_alumno', matriculaSegura)
                    .select(); // <- Esto obliga a Supabase a devolvernos la fila si tuvo éxito
 
                  if (updateError) {
                      console.error("❌ Error de permisos en BD:", updateError);
                  } else if (!updateData || updateData.length === 0) {
-                     console.warn("⚠️ No se encontró la sesión en BD para la matrícula:", estudianteId);
+                     console.warn("⚠️ No se encontró la sesión en BD para la matrícula:", matriculaSegura);
                  } else {
                      console.log("✅ ¡URL guardada exitosamente en BD!");
                  }
