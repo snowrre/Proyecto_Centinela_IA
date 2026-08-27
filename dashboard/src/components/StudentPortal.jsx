@@ -526,6 +526,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
           videoRef.current,
           canvasRef.current,
           formData.matricula || studentData?.matricula || 'Desconocida',
+          formData.pin || studentData?.pin || studentData?.roomCode || '',
           (status) => {
             if (status.suspicionScore !== undefined && !penaltyLockRef.current) {
               setSuspicionScore(status.suspicionScore);

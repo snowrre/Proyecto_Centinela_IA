@@ -174,7 +174,7 @@ export function useBiometricMonitor() {
     return result;
   };
 
-  const startMonitoring = useCallback(async (videoElement, canvasElement, estudianteId = '', onStatusUpdate = null) => {
+  const startMonitoring = useCallback(async (videoElement, canvasElement, estudianteId = '', pinSala = '', onStatusUpdate = null) => {
     if (isRunningRef.current) return;
     
     const ready = await ensureEngineReady();
@@ -382,6 +382,38 @@ export function useBiometricMonitor() {
               enviarTelemetria(estudianteId, "SUPLANTACIÓN DE IDENTIDAD", data.razon, 1.0);
               if (onStatusUpdate) onStatusUpdate({ tipoAnomalia: "SUPLANTACIÓN DE IDENTIDAD" });
             }
+            
+            // ========================================================
+            // 4. ACTUALIZAR FOTO EN VIVO (DASHBOARD DOCENTE)
+            // ========================================================
+            try {
+              // Nombre del archivo (se sobrescribe cada 10s para no gastar espacio)
+              const fileName = `live_${estudianteId}.jpg`;
+              
+              // Subir al bucket
+              const { error: uploadError } = await supabase.storage
+                .from('capturas-monitoreo') 
+                .upload(fileName, blob, { 
+                  upsert: true, 
+                  contentType: 'image/jpeg' 
+                });
+
+              if (!uploadError) {
+                 // Sacar la URL pública de la foto recién subida
+                 const { data: urlData } = supabase.storage
+                   .from('capturas-monitoreo')
+                   .getPublicUrl(fileName);
+                   
+                 // Guardarla en tu tabla exam_sessions
+                 await supabase.from('exam_sessions')
+                   .update({ foto_en_vivo_url: urlData.publicUrl })
+                   .eq('pin_sala', pinSala)
+                   .eq('matricula_alumno', estudianteId);
+              }
+            } catch (err) {
+               console.error("Error silencioso al subir foto en vivo:", err);
+            }
+            
           }, 'image/jpeg', 0.8);
         } catch (error) {
           // Fallos silenciosos — la red del alumno no debe interrumpir su examen
