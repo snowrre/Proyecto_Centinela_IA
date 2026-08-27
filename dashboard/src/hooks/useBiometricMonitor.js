@@ -131,11 +131,12 @@ export function useBiometricMonitor() {
           description: { enabled: false } // APAGADO: Ahorramos memoria, ya validamos identidad
         },
         body: { enabled: false },
-        hand: { enabled: false },
+        hand: { 
+          enabled: true, // ¡ENCENDEMOS EL MÓDULO DE MANOS!
+          maxDetected: 2 
+        },
         object: { 
-          enabled: true, 
-          // Umbral seguro (48%): Evita falsos positivos en paredes/techos
-          minConfidence: 0.48 
+          enabled: false // Apagamos el detector de objetos que fallaba con el celular cercano
         }, 
         gesture: { enabled: false }
       });
@@ -210,7 +211,7 @@ export function useBiometricMonitor() {
           let activeViolation = null;
 
           // ========================================================
-          // LÓGICA HUMAN UNIFICADA (Versión Blindada y Precisa)
+          // LÓGICA DE PROCTORING AVANZADO (Manos + Rostro)
           // ========================================================
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
@@ -219,47 +220,53 @@ export function useBiometricMonitor() {
               currentPersonCount = result.face ? result.face.length : 0;
               isPhoneDetected = false;
 
-              // 1. EVALUACIÓN DE ROSTROS Y AUSENCIA (Prioridad del Estudiante)
-              if (currentPersonCount > 1) {
-                  activeViolationTemporal = "MÚLTIPLES PERSONAS DETECTADAS";
-              } 
-              else if (currentPersonCount === 0) {
-                  // Si no hay rostro (ausente o cámara tapada/bloqueada con objeto)
-                  activeViolationTemporal = "ESTUDIANTE AUSENTE";
-              } 
-              else {
-                  // 2. SENSOR DE DISPOSITIVOS (Umbral seguro de 0.48 para evitar falsos en paredes/techos)
-                  if (result.object && result.object.length > 0) {
-                      const dispositivo = result.object.find(obj => 
-                          ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop', 'tablet'].includes(obj.label)
-                      );
-                      
-                      // Solo actúa si hay un dispositivo real detectado con solidez
-                      if (dispositivo && dispositivo.score > 0.48) {
-                          isPhoneDetected = true;
-                          activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
-                      }
-                  }
-
-                  // 3. SENSOR DE MIRADA (Estricto a 0.35 radianes / ~20 grados)
-                  if (!activeViolationTemporal) {
-                      const rostro = result.face[0];
-                      yaw = rostro.rotation?.angle?.yaw || 0;
-                      pitch = rostro.rotation?.angle?.pitch || 0;
-
-                      if (yaw > 0.35) {
-                          activeViolationTemporal = "MIRADA DESVIADA (IZQUIERDA)";
-                      } else if (yaw < -0.35) {
-                          activeViolationTemporal = "MIRADA DESVIADA (DERECHA)";
-                      } else if (pitch > 0.35) {
-                          activeViolationTemporal = "MIRADA DESVIADA (ABAJO)";
-                      } else if (pitch < -0.35) {
-                          activeViolationTemporal = "MIRADA DESVIADA (ARRIBA)"; 
-                      }
+              // 1. DETECCIÓN DE MANOS CERCA DE LA CARA / TRAMPA
+              let manoLevantadaCercaDelRostro = false;
+              if (result.hand && result.hand.length > 0) {
+                  // Revisamos la posición vertical de las manos detectadas (eje Y)
+                  const manoAlta = result.hand.find(h => {
+                      const boxY = h.box ? h.box[1] : 0; 
+                      return boxY < 380; // Si la mano está en la mitad superior/media de la cámara
+                  });
+                  if (manoAlta) {
+                      manoLevantadaCercaDelRostro = true;
                   }
               }
 
-              // Asignamos la violación final
+              // 2. JERARQUÍA DE SEGURIDAD
+              if (currentPersonCount > 1) {
+                  activeViolationTemporal = "MÚLTIPLES PERSONAS DETECTADAS";
+              } 
+              // SI EL ROSTRO DESAPARECE Y HAY UNA MANO LEVANTADA -> TRAMPA CON CELULAR (Oclusión)
+              else if (currentPersonCount === 0 && manoLevantadaCercaDelRostro) {
+                  isPhoneDetected = true;
+                  activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
+              }
+              else if (currentPersonCount === 0) {
+                  activeViolationTemporal = "ESTUDIANTE AUSENTE";
+              } 
+              // SI HAY ROSTRO PERO TIENE LA MANO LEVANTADA A LA ALTURA DE LA CARA
+              else if (manoLevantadaCercaDelRostro) {
+                  isPhoneDetected = true;
+                  activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
+              }
+              else {
+                  // 3. SENSOR DE MIRADA (Estricto a 0.35 radianes / ~20 grados)
+                  const rostro = result.face[0];
+                  yaw = rostro.rotation?.angle?.yaw || 0;
+                  pitch = rostro.rotation?.angle?.pitch || 0;
+
+                  if (yaw > 0.35) {
+                      activeViolationTemporal = "MIRADA DESVIADA (IZQUIERDA)";
+                  } else if (yaw < -0.35) {
+                      activeViolationTemporal = "MIRADA DESVIADA (DERECHA)";
+                  } else if (pitch > 0.35) {
+                      activeViolationTemporal = "MIRADA DESVIADA (ABAJO)";
+                  } else if (pitch < -0.35) {
+                      activeViolationTemporal = "MIRADA DESVIADA (ARRIBA)"; 
+                  }
+              }
+
               activeViolation = activeViolationTemporal;
           }
 
