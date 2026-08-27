@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import { useBiometricMonitor } from '../hooks/useBiometricMonitor';
 import SalaDiagnostico from './SalaDiagnostico';
 import CronometroExamen from './CronometroExamen';
+import ChatEstudiante from './ChatEstudiante';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -1311,6 +1312,13 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
             </button>
           </div>
         </div>
+      )}
+      {/* Chat flotante con el docente — solo visible durante el examen activo */}
+      {step === 'active' && (
+        <ChatEstudiante
+          pin_sala={formData.pin || studentData?.pin || studentData?.roomCode || ''}
+          nombreAlumno={studentData?.nombre_completo || formData.matricula || 'Alumno'}
+        />
       )}
     </div>
   );

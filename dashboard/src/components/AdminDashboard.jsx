@@ -11,6 +11,7 @@ import Swal from 'sweetalert2';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { SubmissionCard } from './SubmissionCard';
+import ChatDocente from './ChatDocente';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -1407,6 +1408,12 @@ export default function AdminDashboard({ darkMode }) {
                 </div>
             </div>
         </div>
+
+        {/* Chat de Sala en vivo */}
+        <div className="mt-8">
+          <ChatDocente pin_sala={filterPin} darkMode={darkMode} />
+        </div>
+      </div>
       )}
 
 
