@@ -369,12 +369,18 @@ export function useBiometricMonitor() {
               console.log("¡AVISO ROJO: AWS Detectó un Celular!");
               window.awsCandadoCelular = true;
               setTimeout(() => { window.awsCandadoCelular = false; }, 5000);
+              currentInfractionRef.current = "USO DE DISPOSITIVO NO AUTORIZADO";
+              enviarTelemetria(estudianteId, "USO DE DISPOSITIVO NO AUTORIZADO", "AWS_REKOGNITION_PHONE_DETECTED", 1.0);
+              if (onStatusUpdate) onStatusUpdate({ tipoAnomalia: "USO DE DISPOSITIVO NO AUTORIZADO" });
             }
             // B. Prioridad 2: Suplantación de identidad
             else if (data.es_el_alumno === false && data.razon && data.razon.includes("SUPLANTACIÓN")) {
               console.log(`¡ALERTA CRÍTICA: ${data.razon}`);
               window.awsCandadoCelular = true;
               setTimeout(() => { window.awsCandadoCelular = false; }, 5000);
+              currentInfractionRef.current = "SUPLANTACIÓN DE IDENTIDAD";
+              enviarTelemetria(estudianteId, "SUPLANTACIÓN DE IDENTIDAD", data.razon, 1.0);
+              if (onStatusUpdate) onStatusUpdate({ tipoAnomalia: "SUPLANTACIÓN DE IDENTIDAD" });
             }
           }, 'image/jpeg', 0.8);
         } catch (error) {
