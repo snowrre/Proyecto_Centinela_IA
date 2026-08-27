@@ -134,8 +134,8 @@ export function useBiometricMonitor() {
         hand: { enabled: false },
         object: { 
           enabled: true, 
-          // Modo Ultra Estricto (20%): Prioridad máxima, salta ante la mínima sospecha
-          minConfidence: 0.20 
+          // Umbral seguro (48%): Evita falsos positivos en paredes/techos
+          minConfidence: 0.48 
         }, 
         gesture: { enabled: false }
       });
@@ -210,7 +210,7 @@ export function useBiometricMonitor() {
           let activeViolation = null;
 
           // ========================================================
-          // LÓGICA HUMAN UNIFICADA (Modo Ultra Estricto)
+          // LÓGICA HUMAN UNIFICADA (Versión Blindada y Precisa)
           // ========================================================
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
@@ -219,30 +219,30 @@ export function useBiometricMonitor() {
               currentPersonCount = result.face ? result.face.length : 0;
               isPhoneDetected = false;
 
-              // 1. PRIORIDAD #1: TELÉFONOS (Implacable a 0.20)
-              // Se ejecuta SIEMPRE, incluso si la cara está tapada
-              if (result.object && result.object.length > 0) {
-                  // Agregamos 'tablet' por si el brillo lo confunde
-                  const dispositivo = result.object.find(obj => 
-                      ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop', 'tablet'].includes(obj.label)
-                  );
-                  
-                  if (dispositivo && dispositivo.score > 0.20) {
-                      isPhoneDetected = true;
-                      activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
+              // 1. EVALUACIÓN DE ROSTROS Y AUSENCIA (Prioridad del Estudiante)
+              if (currentPersonCount > 1) {
+                  activeViolationTemporal = "MÚLTIPLES PERSONAS DETECTADAS";
+              } 
+              else if (currentPersonCount === 0) {
+                  // Si no hay rostro (ausente o cámara tapada/bloqueada con objeto)
+                  activeViolationTemporal = "ESTUDIANTE AUSENTE";
+              } 
+              else {
+                  // 2. SENSOR DE DISPOSITIVOS (Umbral seguro de 0.48 para evitar falsos en paredes/techos)
+                  if (result.object && result.object.length > 0) {
+                      const dispositivo = result.object.find(obj => 
+                          ['cell phone', 'mobile phone', 'remote', 'tv', 'laptop', 'tablet'].includes(obj.label)
+                      );
+                      
+                      // Solo actúa si hay un dispositivo real detectado con solidez
+                      if (dispositivo && dispositivo.score > 0.48) {
+                          isPhoneDetected = true;
+                          activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
+                      }
                   }
-              }
 
-              // 2. PRIORIDAD #2: ROSTROS Y MIRADA (Si no hay teléfono)
-              if (!activeViolationTemporal) {
-                  if (currentPersonCount > 1) {
-                      activeViolationTemporal = "MÚLTIPLES PERSONAS DETECTADAS";
-                  } 
-                  else if (currentPersonCount === 0) {
-                      activeViolationTemporal = "ESTUDIANTE AUSENTE";
-                  } 
-                  else {
-                      // 3. SENSOR DE MIRADA (Ultra sensible a 0.35 radianes / ~20 grados)
+                  // 3. SENSOR DE MIRADA (Estricto a 0.35 radianes / ~20 grados)
+                  if (!activeViolationTemporal) {
                       const rostro = result.face[0];
                       yaw = rostro.rotation?.angle?.yaw || 0;
                       pitch = rostro.rotation?.angle?.pitch || 0;
@@ -259,7 +259,7 @@ export function useBiometricMonitor() {
                   }
               }
 
-              // Asignamos la violación final para disparar tu alerta
+              // Asignamos la violación final
               activeViolation = activeViolationTemporal;
           }
 
