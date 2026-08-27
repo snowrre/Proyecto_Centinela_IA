@@ -207,7 +207,7 @@ export function useBiometricMonitor() {
           let activeViolation = null;
 
           // ========================================================
-          // LÓGICA DE ROSTROS Y CABEZA
+          // LÓGICA DE ROSTROS Y CABEZA (Con Candado AWS)
           // ========================================================
           if (window.globalHumanMonitor) {
               const result = await window.globalHumanMonitor.detect(videoElement);
@@ -216,14 +216,19 @@ export function useBiometricMonitor() {
               currentPersonCount = result.face ? result.face.length : 0;
               isPhoneDetected = false;
 
-              if (currentPersonCount > 1) {
+              // 1. PRIORIDAD SUPREMA: EL FRANCOTIRADOR AWS
+              if (window.awsCandadoCelular) {
+                  activeViolationTemporal = "USO DE DISPOSITIVO NO AUTORIZADO";
+              }
+              // 2. EVALUACIÓN DE ROSTROS Y AUSENCIA (Si AWS no ha detectado nada)
+              else if (currentPersonCount > 1) {
                   activeViolationTemporal = "MÚLTIPLES PERSONAS DETECTADAS";
               } 
               else if (currentPersonCount === 0) {
                   activeViolationTemporal = "ESTUDIANTE AUSENTE";
               } 
               else {
-                  // SENSOR DE MIRADA (Estricto a 0.35 radianes / ~20 grados)
+                  // 3. SENSOR DE MIRADA (Estricto a 0.35 radianes / ~20 grados)
                   const rostro = result.face[0];
                   yaw = rostro.rotation?.angle?.yaw || 0;
                   pitch = rostro.rotation?.angle?.pitch || 0;
@@ -358,12 +363,14 @@ export function useBiometricMonitor() {
             
             if (data.is_phone) {
               console.log("¡AVISO ROJO: AWS Detectó un Celular!");
-              // Forzamos el estado de infracción. Al pasarlo a la ref, 
-              // el próximo tick de predictWebcam lo procesará y disparará la alerta
-              currentInfractionRef.current = "USO DE DISPOSITIVO NO AUTORIZADO";
-              if (infractionStartMsRef.current === 0) {
-                  infractionStartMsRef.current = performance.now() - 5000; // Forza inmediato
-              }
+              
+              // Ponemos un candado global
+              window.awsCandadoCelular = true;
+              
+              // Lo mantenemos cerrado por 5 segundos para que Supabase alcance a guardar todo
+              setTimeout(() => {
+                  window.awsCandadoCelular = false;
+              }, 5000);
             }
           }, 'image/jpeg', 0.8);
         } catch (error) {
