@@ -51,6 +51,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
   const [isExpelled, setIsExpelled] = useState(false);
   const [diagnosticoAprobado, setDiagnosticoAprobado] = useState(false);
   const [mensajeBloqueo, setMensajeBloqueo] = useState(null);
+  const [violacionActual, setViolacionActual] = useState(null);
   
   // PASO 3: Referencias solicitadas
   const videoRef = useRef(null);
@@ -172,6 +173,36 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
       supabase.removeChannel(suscripcion);
     };
   }, [formData.matricula, studentData, onExit]);
+
+  // Suscripción al desbloqueo del profesor
+  useEffect(() => {
+    const matricula = formData.matricula || studentData?.matricula;
+    if (!matricula) return;
+
+    const suscripcionBio = supabase
+      .channel('vigilancia-bio-alumno')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'telemetria_examenes', filter: `estudiante_id=eq.${matricula}` },
+        (payload) => {
+             if (payload.new.requiere_revision === false) {
+                 setViolacionActual(null);
+             }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'telemetria_examenes', filter: `estudiante_id=eq.${matricula}` },
+        (payload) => {
+             setViolacionActual(null);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(suscripcionBio);
+    };
+  }, [formData.matricula, studentData]);
 
   useEffect(() => {
     matriculaRef.current = formData?.matricula || studentData?.matricula || '';
@@ -501,6 +532,9 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
             }
             if (status.tipoAnomalia) {
               setLastAlertMessage(status.tipoAnomalia);
+              if (status.tipoAnomalia === "SUPLANTACIÓN DE IDENTIDAD") {
+                setViolacionActual("SUPLANTACIÓN DE IDENTIDAD");
+              }
             }
           }
         );
@@ -850,6 +884,26 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
     return <SalaDiagnostico onDiagnosticoCompletado={() => setDiagnosticoAprobado(true)} />;
   }
 
+  // CONDICIÓN DE BLOQUEO ABSOLUTO: Si AWS detecta suplantación, ocultamos el examen
+  if (violacionActual === "SUPLANTACIÓN DE IDENTIDAD") {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-red-900 text-white p-6 text-center">
+        <div className="bg-red-800 p-8 rounded-2xl shadow-2xl max-w-xl border border-red-500">
+          <h1 className="text-4xl font-black mb-4">EXAMEN BLOQUEADO</h1>
+          <p className="text-lg mb-6">
+            El sistema de seguridad biométrica ha detectado un <strong>rostro no autorizado</strong> frente a la cámara.
+          </p>
+          <div className="bg-red-950 p-4 rounded text-sm mb-6 text-red-200">
+            Se ha enviado una captura de pantalla y un reporte de suplantación a tu profesor.
+          </div>
+          <p className="animate-pulse font-bold text-yellow-300">
+            Esperando resolución del profesor...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // SI EL ALUMNO ESTÁ EXPULSADO, RENDERIZAR SOLO ESTO Y DESTRUIR EL EXAMEN
   if (isExpelled) {
     return (
@@ -1069,6 +1123,7 @@ export default function StudentPortal({ onExit, darkMode, studentData }) {
                     <CronometroExamen 
                       pin={formData.pin || studentData?.pin || studentData?.roomCode || ''} 
                       matricula={formData.matricula || studentData?.matricula || ''} 
+                      nombreAlumno={studentData?.nombre_completo || studentData?.nombre_real || formData.matricula}
                       onTimeUp={handleSubmitExam} 
                       biometriaAprobada={step === 'active'}
                     />

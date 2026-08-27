@@ -249,21 +249,24 @@ export default function AdminDashboard({ darkMode }) {
     });
   };
 
-  // 1. Función para borrar UNA sola alerta
-  const borrarAlerta = async (idAlerta) => {
-    try {
-      const { error } = await supabase
-        .from('telemetria_examenes')
-        .delete()
-        .eq('id', idAlerta);
+  const borrarAlerta = async (id) => {
+    const { error } = await supabase.from('telemetria_examenes').delete().eq('id', id);
+    if (!error) {
+      setAlertasBio(prev => prev.filter(a => a.id !== id));
+    }
+  };
 
-      if (error) throw error;
+  const desbloquearAlumno = async (alertaId, matricula) => {
+    const { error } = await supabase
+      .from('telemetria_examenes')
+      .update({ requiere_revision: false })
+      .eq('id', alertaId);
       
-      // Limpiar la UI inmediatamente
-      setAlertasBio(prev => prev.filter(a => a.id !== idAlerta));
-    } catch (error) {
-      console.error("Error al borrar la alerta:", error);
-      alert("Error al borrar: " + error.message);
+    if (!error) {
+      toast.success(`Alumno ${matricula} desbloqueado.`);
+      setAlertasBio(prev => prev.filter(a => a.id !== alertaId));
+    } else {
+      toast.error("Error al desbloquear.");
     }
   };
 
@@ -1116,17 +1119,31 @@ export default function AdminDashboard({ darkMode }) {
                       </div>
                     )}
                     
-                    {/* BOTÓN DE BLOQUEO DOCENTE EN TIEMPO REAL */}
+                    {/* BOTONES DOCENTE EN TIEMPO REAL */}
                     {alerta.estudiante_id && (
-                      <button 
-                        onClick={() => bloquearAlumno(alerta.estudiante_id)}
-                        className="mt-3 w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 flex justify-center items-center gap-2 text-xs"
-                      >
-                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
-                        </svg>
-                        Bloquear Alumno
-                      </button>
+                      <div className="flex gap-2 mt-3">
+                        <button 
+                          onClick={() => bloquearAlumno(alerta.estudiante_id)}
+                          className="flex-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-2 px-3 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 flex justify-center items-center gap-1 text-[10px] uppercase tracking-wider"
+                        >
+                          <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                          </svg>
+                          Expulsar
+                        </button>
+                        
+                        {alerta.tipo_anomalia === 'SUPLANTACIÓN DE IDENTIDAD' && (
+                          <button 
+                            onClick={() => desbloquearAlumno(alerta.id, alerta.estudiante_id)}
+                            className="flex-1 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold py-2 px-3 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 flex justify-center items-center gap-1 text-[10px] uppercase tracking-wider"
+                          >
+                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                            </svg>
+                            Desbloquear
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

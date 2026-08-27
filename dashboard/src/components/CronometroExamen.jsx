@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase'; 
 
-export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAprobada }) {
+export default function CronometroExamen({ pin, matricula, nombreAlumno, onTimeUp, biometriaAprobada }) {
   const [tiempoRestante, setTiempoRestante] = useState(null); // en segundos
   const [sesion, setSesion] = useState(null);
   const [enviando, setEnviando] = useState(false);
@@ -39,6 +39,7 @@ export default function CronometroExamen({ pin, matricula, onTimeUp, biometriaAp
               { 
                 pin_sala: pin, 
                 matricula_alumno: matricula, 
+                student_name: nombreAlumno || matricula,
                 hora_inicio_real: new Date().toISOString() 
               }
             ])
