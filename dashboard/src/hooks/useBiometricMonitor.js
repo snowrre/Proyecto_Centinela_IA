@@ -387,31 +387,38 @@ export function useBiometricMonitor() {
             // 4. ACTUALIZAR FOTO EN VIVO (DASHBOARD DOCENTE)
             // ========================================================
             try {
-              // Nombre del archivo (se sobrescribe cada 10s para no gastar espacio)
               const fileName = `live_${estudianteId}.jpg`;
               
-              // Subir al bucket
               const { error: uploadError } = await supabase.storage
                 .from('capturas-monitoreo') 
-                .upload(fileName, blob, { 
-                  upsert: true, 
-                  contentType: 'image/jpeg' 
-                });
+                .upload(fileName, blob, { upsert: true, contentType: 'image/jpeg' });
 
               if (!uploadError) {
-                 // Sacar la URL pública de la foto recién subida
+                 // 1. Sacamos la URL pública
                  const { data: urlData } = supabase.storage
                    .from('capturas-monitoreo')
                    .getPublicUrl(fileName);
+                 
+                 console.log("📷 URL generada:", urlData.publicUrl); // <- Detector 1
                    
-                 // Guardarla en tu tabla exam_sessions
-                 await supabase.from('exam_sessions')
+                 // 2. Guardamos en BD buscando SOLAMENTE por matrícula (quitamos el PIN)
+                 const { data: updateData, error: updateError } = await supabase.from('exam_sessions')
                    .update({ foto_en_vivo_url: urlData.publicUrl })
-                   .eq('pin_sala', pinSala)
-                   .eq('matricula_alumno', estudianteId);
+                   .eq('matricula_alumno', estudianteId)
+                   .select(); // <- Esto obliga a Supabase a devolvernos la fila si tuvo éxito
+
+                 if (updateError) {
+                     console.error("❌ Error de permisos en BD:", updateError);
+                 } else if (!updateData || updateData.length === 0) {
+                     console.warn("⚠️ No se encontró la sesión en BD para la matrícula:", estudianteId);
+                 } else {
+                     console.log("✅ ¡URL guardada exitosamente en BD!");
+                 }
+              } else {
+                 console.error("❌ Error subiendo al bucket:", uploadError);
               }
             } catch (err) {
-               console.error("Error silencioso al subir foto en vivo:", err);
+               console.error("❌ Error general al subir foto:", err);
             }
             
           }, 'image/jpeg', 0.8);
