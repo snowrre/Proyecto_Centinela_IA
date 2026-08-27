@@ -360,6 +360,28 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
 
       if (res.ok && data.match) {
         setSimilitud(data.similitud.toFixed(1));
+        setMensaje('Identidad confirmada. Verificando unicidad biométrica...');
+
+        // ── CANDADO BIOMÉTRICO: Verificar si el rostro ya existe en AWS ──
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+        const formDuplicado = new FormData();
+        formDuplicado.append('foto', selfieFile, 'selfie.jpg');
+        try {
+          const resDuplicado = await fetch(`${apiUrl}/api/verificar_duplicado_biometrico`, {
+            method: 'POST',
+            body: formDuplicado
+          });
+          const dataDuplicado = await resDuplicado.json();
+          if (dataDuplicado.duplicado) {
+            setMensaje(`⛔ Registro bloqueado: ${dataDuplicado.mensaje}`);
+            setFase('error');
+            return;
+          }
+        } catch {
+          // Si el candado falla (red), continuamos para no bloquear al alumno legítimo
+          console.warn('[CandadoBiométrico] No se pudo verificar duplicado, continuando...');
+        }
+
         setMensaje(`¡Identidad confirmada! Similitud: ${data.similitud.toFixed(1)}%`);
         setFase('exito');
 
@@ -409,6 +431,19 @@ function VerificacionBiometrica({ datosFormulario, archivoIne, darkMode, onExito
         .eq('matricula', datosFormulario.matricula);
 
       if (error) throw error;
+
+      // ── SELLAR LA BIOMETRÍA EN AWS (indexar para futuros candados) ──
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+        const formSello = new FormData();
+        formSello.append('foto', selfieFile, 'selfie.jpg');
+        formSello.append('matricula', datosFormulario.matricula);
+        await fetch(`${apiUrl}/api/guardar_rostro_biometrico`, { method: 'POST', body: formSello });
+        console.log('[CandadoBiométrico] ✅ Rostro sellado en AWS.');
+      } catch {
+        console.warn('[CandadoBiométrico] No se pudo sellar el rostro en AWS, continuando...');
+      }
+
       setTimeout(() => onExito?.(datosFormulario), 2500);
     } catch (err) {
       console.error('[RegistroAlumno] Error actualizando cuenta:', err);
